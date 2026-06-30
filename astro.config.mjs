@@ -36,9 +36,4 @@ export default defineConfig({
       ],
     ],
   },
-  vite: {
-    ssr: {
-      noExternal: ['@tsparticles/react', '@tsparticles/slim'],
-    },
-  },
 });

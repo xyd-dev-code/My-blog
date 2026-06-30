@@ -2,24 +2,14 @@
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import { SITE } from '~/consts';
 
-const skills = {
-  languages: ['TypeScript', 'JavaScript', 'Java', 'Python', 'SQL', 'Bash'],
-  frontend: ['Vue 3', 'React 19', 'Astro', 'Tailwind CSS', 'Vite', 'Naive UI', 'Element Plus'],
-  backend: ['Spring Boot 3', 'Node.js (Nest)', 'MyBatis-Plus', 'JPA', 'JWT', 'REST'],
-  data: ['MySQL 8', 'PostgreSQL', 'Redis', 'Elasticsearch'],
-  devops: ['Docker', 'Docker Compose', 'GitHub Actions', 'Nginx', 'Linux', 'PM2'],
-  tools: ['VS Code', 'Git', 'pnpm', 'Vite', 'Vitest', 'Playwright'],
-};
-
-const timeline = [
-  { year: '2026', title: 'zhikao-cloud 上线', detail: '从 0 到 1 搭建全栈应用，覆盖 200+ 用户' },
-  { year: '2025', title: '主攻后端工程化', detail: 'Spring Boot 3 + JDK 21 + MyBatis-Plus' },
-  { year: '2024', title: '前端工程化转型', detail: '从 jQuery 切到 Vue 3 + TypeScript' },
-  { year: '2023', title: '开始写技术博客', detail: '在语雀、Notion 上零星记录' },
-];
+const email = 'x2597486661@gmail.com';
 ---
-<BaseLayout title="About" description={`关于 ${SITE.author}。`}>
-  <section class="mx-auto max-w-4xl px-4 sm:px-6 py-12">
+
+<BaseLayout
+  title="About"
+  description={`关于 ${SITE.author}——一名专注于后端开发的全栈工程师。`}
+>
+  <section class="mx-auto max-w-3xl px-4 sm:px-6 py-12">
     <header class="mb-12 text-center">
       <h1 class="font-display text-4xl sm:text-5xl font-bold text-ink-900">
         关于我
@@ -29,92 +19,92 @@ const timeline = [
       </p>
     </header>
 
-    <!-- 自我介绍卡片 -->
-    <div class="paper-card p-8 mb-12">
-      <div class="prose-paper">
-        <p>
-          我是 <strong class="text-sky-700">{SITE.author}</strong>，全栈工程师，主业写 Java / Vue，业余折腾个人项目。
-        </p>
-        <p>
-          现在手上最大的项目是 <a href="/posts/project-retro" class="paper-link">zhikao-cloud</a>——一个面向学生的在线考试 + 学习平台，
-          Spring Boot 3 + Vue 3 + Docker 一键起，跑了一年多，200 多个真实用户。
-          中间踩过的坑、为什么这么选型、哪些地方翻车了，全都写进了
-          <a href="/posts/project-retro" class="paper-link">那篇复盘</a>。
-        </p>
-        <p>
-          这个博客是我的外接硬盘——学新东西的笔记、做项目的复盘、踩过的坑、偶尔的小工具。
-          不写鸡汤、不抄文档，只写我真正动手做过的事。
-          如果你也在学类似的东西，希望这里能省你一两个小时。
-        </p>
-      </div>
+    <article class="prose-paper">
+      <p>
+        我是 <strong class="text-sky-700">XiaoyouDong</strong>，全栈工程师，主业写 Java / Vue，一名专注于后端开发的工程师。
+      </p>
 
-      <div class="mt-6 pt-6 border-t border-cloud-300 flex flex-wrap items-center gap-4 text-sm">
-        <a href={SITE.github} target="_blank" rel="noopener" class="paper-link font-medium">
+      <h2>技术成长</h2>
+      <p>
+        我的技术探索始于扎实的编程基础，从 Java、C 语言到数据结构与计算机网络，这些课程为我构建了清晰的计算机科学认知体系。
+        我享受将复杂业务逻辑转化为高效、稳定代码的过程，尤其热衷于使用 Spring Boot、MyBatis 等主流框架构建可靠的 RESTful 服务。
+      </p>
+
+      <h2>工程实践</h2>
+      <p>
+        在实习与项目实践中，我不断将理论付诸实践。无论是参与企业级业务支撑系统的维护与优化，还是独立设计在线考试系统、电商平台等项目，
+        我都致力于在架构设计、性能调优与工程规范上寻求最佳平衡。
+      </p>
+      <blockquote>
+        例如，通过引入 Redis 缓存热点数据、采用乐观锁解决高并发超卖问题，或利用 JWT 与 RBAC 模型构建安全的权限体系——
+        这些经历让我深刻体会到"代码不止于运行，更在于优雅与健壮"。
+      </blockquote>
+
+      <h2>AI 工具与工程规范</h2>
+      <p>
+        我也积极拥抱 AI 编程辅助工具，善于通过精准的 Prompt Engineering 提升开发与调试效率，并始终保持良好的技术文档编写习惯，
+        相信清晰的表达是高效协作的基石。
+      </p>
+
+      <h2>除了编码</h2>
+      <p>
+        除了编码，我也曾担任班级团支书，组织活动、协调事务的经历让我更注重沟通与团队协作。
+        目前，我已通过大学英语四级，并持续通过阅读、实践与分享来拓展技术视野。
+      </p>
+
+      <h2>关于这个博客</h2>
+      <p>
+        这个博客将记录我的学习心得、项目复盘与技术思考。如果你也对后端开发、系统架构或工程实践感兴趣，欢迎交流，共同进步。
+      </p>
+    </article>
+
+    <!-- 联系方式 -->
+    <div class="paper-card mt-16 p-6">
+      <h3 class="font-mono text-xs uppercase tracking-widest text-sky-700 mb-4">
+        // get in touch
+      </h3>
+      <div class="flex flex-col sm:flex-row sm:items-center gap-4 text-sm">
+        <a
+          href={SITE.github}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="paper-link font-medium"
+        >
           → GitHub @xyd-dev-code
         </a>
-        <span class="text-ink-300">·</span>
-        <span class="text-ink-500">x2597486661 [at] gmail.com</span>
-      </div>
-    </div>
-
-    <!-- 技能树 -->
-    <h2 class="font-display text-2xl font-bold mb-6 mt-16 text-ink-900">
-      <span class="text-sky-600">#</span> 技能树
-    </h2>
-    <div class="grid gap-4 sm:grid-cols-2">
-      {Object.entries(skills).map(([category, items], idx) => (
-        <div class="paper-card p-5">
-          <h3 class="text-xs font-mono uppercase tracking-widest text-sky-700 mb-3">
-            // {category}
-          </h3>
-          <div class="flex flex-wrap gap-1.5">
-            {items.map((item, i) => (
-              <span
-                class:list={[
-                  'tag-chip',
-                  i % 3 === 1 ? 'tag-chip-warm' : i % 3 === 2 ? 'tag-chip-leaf' : '',
-                ]}
-              >
-                {item}
-              </span>
-            ))}
-          </div>
+        <span class="hidden sm:inline text-ink-300">·</span>
+        <div class="flex items-center gap-2">
+          <span class="text-ink-500 font-mono" aria-label="Email">{email}</span>
+          <button
+            type="button"
+            id="copy-email-btn"
+            class="text-xs font-mono px-2 py-0.5 rounded-md border border-cloud-300 text-ink-500 hover:text-sky-700 hover:border-sky-500 transition-colors"
+            data-email={email}
+            aria-label="复制邮箱到剪贴板"
+          >
+            复制
+          </button>
         </div>
-      ))}
-    </div>
-
-    <!-- 时间线 -->
-    <h2 class="font-display text-2xl font-bold mb-6 mt-16 text-ink-900">
-      <span class="text-sky-600">#</span> 时间线
-    </h2>
-    <ol class="relative border-l-2 border-cloud-300 pl-6 space-y-8">
-      {timeline.map((item) => (
-        <li class="relative">
-          <span
-            class="absolute -left-[33px] top-1.5 h-3 w-3 rounded-full bg-sky-500 ring-4 ring-white"
-          ></span>
-          <div class="text-sm text-sky-700 font-medium">{item.year}</div>
-          <h3 class="font-display text-lg font-semibold text-ink-900 mt-1">
-            {item.title}
-          </h3>
-          <p class="text-ink-500 text-sm mt-1">{item.detail}</p>
-        </li>
-      ))}
-    </ol>
-
-    <!-- 联系 CTA -->
-    <div class="mt-16 paper-card p-8 text-center bg-gradient-to-br from-sky-50 to-white">
-      <p class="text-ink-700">
-        <span class="text-sky-600 font-medium">如果你觉得我还行</span>：
-      </p>
-      <p class="mt-3 text-lg">
-        <a href={SITE.github} target="_blank" rel="noopener" class="paper-link font-semibold">
-          GitHub @xyd-dev-code
-        </a>
-      </p>
-      <p class="mt-2 text-xs text-ink-400">
-        欢迎约技术交流 / 互相推荐工具
-      </p>
+      </div>
     </div>
   </section>
 </BaseLayout>
+
+<script>
+  const btn = document.getElementById('copy-email-btn');
+  if (btn) {
+    btn.addEventListener('click', async () => {
+      const email = btn.getAttribute('data-email');
+      if (!email) return;
+      try {
+        await navigator.clipboard.writeText(email);
+        const original = btn.textContent;
+        btn.textContent = '已复制';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      } catch {
+        btn.textContent = '复制失败';
+        setTimeout(() => { btn.textContent = '复制'; }, 1500);
+      }
+    });
+  }
+</script>

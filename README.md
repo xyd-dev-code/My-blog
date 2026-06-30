@@ -1,17 +1,17 @@
-# Ouyang Hao · Tech Blog
+# XiaoyouDong · Tech Blog
 
-> 一个深色霓虹/赛博风的个人技术博客——记录学习、踩坑与项目复盘。写给未来的我、同学，以及所有路过的同行。
+> 一个晴空主题的个人技术博客——记录学习、踩坑与项目复盘。写给未来的我、同学，以及所有路过的同行。
 
 ![preview](https://img.shields.io/badge/Astro-5-FF5D01?logo=astro&logoColor=white)
 ![tailwind](https://img.shields.io/badge/Tailwind-3-38BDF8?logo=tailwindcss&logoColor=white)
 ![deploy](https://img.shields.io/badge/Deploy-GitHub_Pages-222?logo=githubpages&logoColor=white)
-![license](https://img.shields.io/badge/License-MIT-00f0ff)
+![license](https://img.shields.io/badge/License-MIT-0ea5e9)
 
 🔗 访问：<https://www.personalblog.website/>
 
 ## 特性
 
-- 🌌 **深色霓虹/赛博朋克风** — 自研 Tailwind 主题（cyan / magenta / lime / purple）
+- ☁️ **晴空主题** — 自研 Tailwind 调色板（sky 蓝 + cloud 白 + sun 金 + leaf 绿）+ Fraunces / Noto Serif SC 衬线标题
 - ⚡ **极致性能** — Astro 5 Islands 架构，首屏 < 50KB
 - 📝 **MDX 写作** — Markdown 里能塞 React 组件
 - 🔍 **Pagefind 全文搜索** — `Cmd/Ctrl + K` 唤起
@@ -26,7 +26,7 @@
 
 ```
 src/
-├── components/      # UI 组件（Header/Footer/TOC/...）
+├── components/      # UI 组件（Header/Footer/TOC/Comments/Background/...）
 ├── content/posts/   # 所有文章（MDX）
 ├── layouts/         # 布局
 ├── pages/           # 路由
@@ -81,7 +81,7 @@ tags: ["topic", "category"]
    - **发布日期** — 选今天
    - **标签** — 多个标签以回车分隔
    - **草稿** — 勾选后文章只在本地 dev 显示，生产环境不可见
-   - **正文** — 纯 Markdown 编辑器（**不支持** `<Callout>` 等 React 组件，需要组件的文章请用本地编辑器写 MDX）
+   - **正文** — 纯 Markdown 编辑器（**不支持** React 组件，需要组件的文章请用本地编辑器写 MDX）
 3. 点右上角 **Publish**
 4. 几秒后 CMS 显示 "Status: Published"，GitHub 仓库 `main` 分支收到一个 commit（消息形如 `feat(posts): 新增 2026-06-30-spring-boot-jdk21`）
 5. 等 2-3 分钟 GitHub Actions 自动部署，刷新线上博客即可看到新文章
@@ -122,39 +122,51 @@ pnpm preview      # 预览构建结果
 4. push 后 `Actions` tab 会自动跑 `.github/workflows/deploy.yml`
 5. 几分钟后访问 `https://<user>.github.io/My-blog/`
 
-### ⚠️ `base` 路径配置
+### `base` 路径配置
 
 本仓库 `astro.config.mjs` 设置了 `base: ''`（空字符串），站点绑定自定义域名 `www.personalblog.website`，访问 URL 不含子路径前缀。如果你换成 user page（`username.github.io`）也无需改；换成项目页才需要设回 `base`。
 
-## 配置 Giscus 评论（可选）
+## 配置 Giscus 评论
+
+> ⚠️ **当前未启用。** `src/components/Comments.astro` 里的 `data-repo-id` / `data-category-id` 是 `REPLACE_ME_GISCUS_*` 占位符，按下面步骤配好后评论才会真正工作。
 
 1. 仓库 → Settings → Features → 开启 **Discussions**
-2. 访问 <https://giscus.app/zh-CN>，填入仓库名 `xyd-dev-code/My-blog`
+2. 访问 <https://giscus.app/zh-CN>，填入仓库名 `xyd-dev-code/My-blog`，按你想要的页面映射 / 类别设置生成配置
 3. 复制生成的 `data-repo-id` 和 `data-category-id`
-4. 替换 `src/components/Comments.astro` 里的 `placeholder`
+4. 替换 `src/components/Comments.astro` 里对应位置的两个 `REPLACE_ME_GISCUS_*`
+5. 注意：`Comments.astro` 当前样式残留旧霓虹主题（`text-neon-*`、`text-text-*` 等类名在晴空主题里不存在，渲染会异常），最好连样式一起迁移到 sky 调色板
 
 ## 主题定制
 
-所有霓虹色 token 在 `tailwind.config.mjs` 的 `colors` 段：
+所有晴空主题色 token 在 `tailwind.config.mjs` 的 `colors` 段：
 
 ```js
 colors: {
-  neon: { cyan: '#00f0ff', magenta: '#ff00aa', lime: '#aaff00', purple: '#b14aed' },
-  bg: { base: '#0a0a0f', card: '#12121a', elev: '#1a1a26' },
+  sky:    { /* 主色：天空蓝（50–900）*/ },
+  cloud:  { /* 云白（50–300） */ },
+  sun:    { /* 阳光金点缀 */ },
+  leaf:   { /* 叶子绿点缀 */ },
+  ink:    { /* 主文字 */ },
+  paper:  { /* 背景白 */ },
 }
 ```
 
-字体：`Inter`（正文）+ `Space Grotesk`（标题）+ `JetBrains Mono`（代码）。
+字体：
+
+- 正文 `Inter`（无衬线，回退 PingFang / 微软雅黑）
+- 标题 `Fraunces` / `Noto Serif SC`（衬线）
+- 代码 `JetBrains Mono`
+
+`Background.astro` 里另有云朵 SVG + 阳光光晕 / 天空光晕（CSS / SVG-only，无 JS 动画库依赖）。
 
 ## 致谢
 
 - [Astro](https://astro.build/) — 静态站框架
-- [Tailwind CSS](https://tailwindcss.com/) — 样式
-- [tsparticles](https://particles.js.org/) — 首页粒子背景
+- [Tailwind CSS](https://tailwindcss.org/) — 样式
 - [Shiki](https://shiki.style/) — 代码高亮
 - [Pagefind](https://pagefind.app/) — 静态搜索
 - [Giscus](https://giscus.app/) — 评论
 
 ---
 
-© 2026 Ouyang Hao · MIT
+© 2026 XiaoyouDong · MIT
