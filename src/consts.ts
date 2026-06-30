@@ -1,6 +1,6 @@
 export const SITE = {
-  url: 'https://xyd-dev-code.github.io',
-  baseUrl: '/My-blog',
+  url: 'https://www.personalblog.website',
+  baseUrl: '',
   title: 'XiaoyouDong · Tech Blog',
   description:
     '一个深色霓虹风的个人技术博客——记录学习、踩坑与项目复盘。',

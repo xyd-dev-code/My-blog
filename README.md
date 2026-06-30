@@ -7,7 +7,7 @@
 ![deploy](https://img.shields.io/badge/Deploy-GitHub_Pages-222?logo=githubpages&logoColor=white)
 ![license](https://img.shields.io/badge/License-MIT-00f0ff)
 
-🔗 访问：<https://xyd-dev-code.github.io/My-blog/>
+🔗 访问：<https://www.personalblog.website/>
 
 ## 特性
 
@@ -58,11 +58,11 @@ tags: ["topic", "category"]
 
 ## 使用 CMS 在线编辑
 
-直接浏览器打开 `https://xyd-dev-code.github.io/My-blog/admin/` 就能写文章，所见即所得、保存即自动 commit、自动触发部署。底层用 [Decap CMS](https://decapcms.org/) + GitHub OAuth，OAuth 代理由 [Netlify Identity](https://docs.netlify.com/visitor-access/identity/) 免费提供（无需部署到 Netlify）。
+直接浏览器打开 `https://www.personalblog.website/admin/` 就能写文章，所见即所得、保存即自动 commit、自动触发部署。底层用 [Decap CMS](https://decapcms.org/) + GitHub OAuth，OAuth 代理由 [Netlify Identity](https://docs.netlify.com/visitor-access/identity/) 免费提供（无需部署到 Netlify）。
 
 ### 首次配置（一次性，5 分钟）
 
-1. 访问 `https://xyd-dev-code.github.io/My-blog/admin/`
+1. 访问 `https://www.personalblog.website/admin/`
 2. 点 **Login with GitHub**
 3. 第一次会引导你创建一个 **Netlify Identity site**（免费、一键）
 4. 创建后自动跳到 **Configure Git Gateway**，Provider 选 GitHub
@@ -88,7 +88,7 @@ tags: ["topic", "category"]
 
 ### 图片上传
 
-拖拽图片到正文编辑器，会自动上传到 `public/images/uploads/`，并在 Markdown 里生成引用 URL（形如 `/My-blog/images/uploads/xxx.jpg`）。
+拖拽图片到正文编辑器，会自动上传到 `public/images/uploads/`，并在 Markdown 里生成引用 URL（形如 `/images/uploads/xxx.jpg`）。
 
 ### 本地限制
 
@@ -124,7 +124,7 @@ pnpm preview      # 预览构建结果
 
 ### ⚠️ `base` 路径配置
 
-本仓库 `astro.config.mjs` 设置了 `base: '/My-blog'`，匹配 GitHub Pages 的项目页路径。如果你的仓库名不同，记得改这个值。
+本仓库 `astro.config.mjs` 设置了 `base: ''`（空字符串），站点绑定自定义域名 `www.personalblog.website`，访问 URL 不含子路径前缀。如果你换成 user page（`username.github.io`）也无需改；换成项目页才需要设回 `base`。
 
 ## 配置 Giscus 评论（可选）
 

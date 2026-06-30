@@ -12,7 +12,7 @@ import { SITE } from './src/consts';
 
 export default defineConfig({
   site: SITE.url,
-  base: process.env.NODE_ENV === 'development' ? '/' : SITE.baseUrl,
+  base: SITE.baseUrl,
   integrations: [
     react(),
     tailwind({ applyBaseStyles: false }),

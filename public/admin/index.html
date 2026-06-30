@@ -14,10 +14,10 @@
     </script>
     <script src="https://unpkg.com/decap-cms@3.6.4/dist/decap-cms.js"></script>
     <script>
-      // 仓库部署在 GitHub Pages 项目页，base 路径硬编码为 /My-blog
-      // 本地 dev 时 base 为 /，访问 /admin/ 不会登录（OAuth 回调不在白名单）
+      // 仓库部署在 GitHub Pages 自定义域名，base 路径为空
+      // 本地 dev 时 base 为 ''，访问 /admin/ 不会登录（OAuth 回调不在白名单）
       window.CMS.init({
-        configUrl: '/My-blog/admin/config.yml',
+        configUrl: '/admin/config.yml',
       });
     </script>
   </body>
