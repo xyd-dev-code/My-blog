@@ -3,7 +3,6 @@ title: "zhikao-cloud 项目复盘 — 一个全栈工程师的踩坑实录"
 description: "智考云：覆盖考试/题库/学情/PK/讨论完整闭环的全栈应用。Spring Boot 3.2.5 + Vue 3.4 + MySQL 8 + Docker 部署的真实复盘。"
 pubDate: 2026-06-30
 tags: ["project", "fullstack", "retrospective"]
-cover: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1200&h=630&fit=crop"
 ---
 
 ## 写在前面
@@ -399,7 +398,6 @@ backend/seed-test-data.sql
 - ❌ **单元测试覆盖率**——核心业务只覆盖到 65%
 - ❌ **CI/CD 没完全跑通**——目前手动 `docker compose pull`
 - ❌ **监控缺失**——只有日志，没有 metrics 和 trace
-- ❌ **国际化**——纯中文版
 - ❌ **短信登录**——接口已留，对接阿里云/腾讯云待做
 
 ## 十、Roadmap
