@@ -20,7 +20,7 @@ const isActive = (href: string) => {
         <span class="block h-full w-full rounded-full" style="background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.6) 0%, transparent 50%);"></span>
       </span>
       <span
-        class="font-display text-base font-semibold tracking-tight text-ink-900 group-hover:text-sky-700 transition-colors"
+        class="font-display text-base font-semibold tracking-tight text-ink-900 group-hover:text-sky-700 transition-[color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
       >
         {SITE.author}
       </span>
@@ -32,7 +32,7 @@ const isActive = (href: string) => {
         <a
           href={item.href}
           class:list={[
-            'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
+            'px-3 py-1.5 text-sm font-medium rounded-md transition-[color,background-color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
             isActive(item.href)
               ? 'text-sky-700 bg-sky-50'
               : 'text-ink-500 hover:text-ink-900 hover:bg-cloud-100',
@@ -49,7 +49,7 @@ const isActive = (href: string) => {
         href={SITE.github}
         target="_blank"
         rel="noopener noreferrer"
-        class="hidden sm:inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-500 hover:text-sky-600 hover:bg-sky-50 transition-colors"
+        class="hidden sm:inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-500 hover:text-sky-600 hover:bg-sky-50 transition-[color,background-color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
         aria-label="GitHub"
       >
         <svg viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
@@ -70,7 +70,7 @@ const isActive = (href: string) => {
             <a
               href={item.href}
               class:list={[
-                'block px-3 py-2 text-sm rounded-lg',
+                'block px-3 py-2 text-sm rounded-lg transition-[color,background-color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
                 isActive(item.href) ? 'text-sky-700 bg-sky-50' : 'text-ink-500 hover:text-ink-900 hover:bg-cloud-100',
               ]}
             >

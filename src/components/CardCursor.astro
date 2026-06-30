@@ -1,0 +1,87 @@
+---
+/**
+ * 磁吸光标 + 卡片 3D 倾斜跟随
+ * - 给容器加 data-tilt 即生效
+ * - 容器会通过 CSS 变量 --mx/--my（光斑位置 0-100%）、--rx/--ry（倾斜角 ±5°）响应鼠标
+ * - 移动端 / 触屏 / 小屏 / prefers-reduced-motion 自动降级为不启用
+ */
+---
+<script is:inline>
+  (() => {
+    const isFinePointer = window.matchMedia('(pointer: fine)').matches;
+    const isWide = window.matchMedia('(min-width: 768px)').matches;
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!isFinePointer || !isWide || prefersReduced) return;
+
+    const TILT = 5;
+    const items = Array.from(document.querySelectorAll<HTMLElement>('[data-tilt]'));
+    if (items.length === 0) return;
+
+    let active: HTMLElement | null = null;
+
+    function onMove(e: MouseEvent) {
+      if (!active) return;
+      const r = active.getBoundingClientRect();
+      const x = ((e.clientX - r.left) / r.width) * 100;
+      const y = ((e.clientY - r.top) / r.height) * 100;
+      const rx = ((y - 50) / 50) * -TILT;
+      const ry = ((x - 50) / 50) * TILT;
+      active.style.setProperty('--mx', `${x}%`);
+      active.style.setProperty('--my', `${y}%`);
+      active.style.setProperty('--rx', `${rx.toFixed(2)}deg`);
+      active.style.setProperty('--ry', `${ry.toFixed(2)}deg`);
+    }
+    function onEnter(this: HTMLElement) {
+      active = this;
+    }
+    function onLeave() {
+      if (!active) return;
+      active.style.setProperty('--mx', '50%');
+      active.style.setProperty('--my', '50%');
+      active.style.setProperty('--rx', '0deg');
+      active.style.setProperty('--ry', '0deg');
+      active = null;
+    }
+
+    items.forEach((el) => {
+      el.addEventListener('mouseenter', onEnter);
+      el.addEventListener('mouseleave', onLeave);
+    });
+    window.addEventListener('mousemove', onMove, { passive: true });
+  })();
+</script>
+
+<style is:global>
+  [data-tilt] {
+    transform-style: preserve-3d;
+    transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transition:
+      transform 0.25s var(--ease-out-quint),
+      box-shadow var(--dur-base) var(--ease-out-quint),
+      border-color var(--dur-base) var(--ease-out-quint);
+  }
+
+  [data-tilt]::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(
+      280px circle at var(--mx, 50%) var(--my, 50%),
+      rgba(125, 211, 252, 0.28),
+      transparent 60%
+    );
+    opacity: 0;
+    transition: opacity var(--dur-base) var(--ease-out-quint);
+    z-index: 0;
+  }
+  [data-tilt]:hover::before {
+    opacity: 1;
+  }
+
+  [data-tilt] > * {
+    position: relative;
+    z-index: 1;
+  }
+</style>

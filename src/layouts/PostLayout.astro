@@ -1,18 +1,20 @@
 ---
-import { type CollectionEntry } from 'astro:content';
+import { type CollectionEntry, type RenderedContent } from 'astro:content';
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import PostMeta from '~/components/PostMeta.astro';
 import TOC from '~/components/TOC.astro';
+import type { MarkdownHeading } from 'astro';
 
 interface Props {
   post: CollectionEntry<'posts'>;
   readingTime?: string;
+  headings?: MarkdownHeading[];
 }
 
-const { post, readingTime } = Astro.props;
+const { post, readingTime, headings = [] } = Astro.props;
 ---
 <BaseLayout title={post.data.title} description={post.data.description}>
-  <article class="relative mx-auto max-w-6xl px-4 sm:px-6 py-12">
+  <article class="relative mx-auto max-w-6xl px-4 sm:px-6 py-12" style="content-visibility: auto; contain-intrinsic-size: auto 1200px;">
     <!-- 面包屑 -->
     <nav class="mb-8 text-xs text-ink-400">
       <a href="/" class="hover:text-sky-600">~</a>
@@ -22,7 +24,9 @@ const { post, readingTime } = Astro.props;
       <span class="text-ink-500">{post.id}</span>
     </nav>
 
-    <div class="grid gap-12 lg:grid-cols-[1fr_16rem]">
+    <div class="grid gap-12 lg:grid-cols-[16rem_1fr]">
+      <TOC headings={headings} />
+
       <div class="min-w-0">
         <header class="mb-10 pb-8 border-b border-cloud-300">
           <h1 class="font-display text-3xl sm:text-5xl font-bold text-ink-900 text-balance leading-tight">
@@ -34,6 +38,17 @@ const { post, readingTime } = Astro.props;
           <div class="mt-6">
             <PostMeta post={post} readingTime={readingTime} />
           </div>
+
+          {post.data.cover && (
+            <div class="mt-8 mb-0 rounded-xl overflow-hidden shadow-paper-md">
+              <img
+                src={post.data.cover}
+                alt={post.data.title}
+                class="w-full h-auto object-cover max-h-80"
+                loading="eager"
+              />
+            </div>
+          )}
         </header>
 
         <div class="prose-paper">
@@ -45,7 +60,7 @@ const { post, readingTime } = Astro.props;
           <div class="flex flex-wrap items-center justify-between gap-4">
             <a
               href="/posts"
-              class="inline-flex items-center gap-2 text-sm text-ink-500 hover:text-sky-700 transition-colors"
+              class="inline-flex items-center gap-2 text-sm text-ink-500 hover:text-sky-700 transition-[color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
             >
               <span>←</span> 回到所有文章
             </a>
@@ -55,8 +70,6 @@ const { post, readingTime } = Astro.props;
           </div>
         </footer>
       </div>
-
-      <TOC headings={post.data.headings ?? []} />
     </div>
   </article>
 </BaseLayout>

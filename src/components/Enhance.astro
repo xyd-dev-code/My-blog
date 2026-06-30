@@ -1,0 +1,88 @@
+---
+/**
+ * 全局微交互增强：
+ * 1) 为 prose-paper pre 代码块注入复制按钮（hover 显示 + 点击复制）
+ * 2) 顶部跨站链接进度条（NProgress 风格：1.2s 从左到右展开后淡出）
+ */
+---
+<script is:inline>
+  (() => {
+    // ===== 1) 代码块复制按钮 =====
+    function injectCopyButtons() {
+      document.querySelectorAll('.prose-paper pre').forEach((pre) => {
+        if (pre.querySelector('.code-copy-btn')) return;
+        const code = pre.querySelector('code');
+        if (!code) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'code-copy-btn';
+        btn.setAttribute('aria-label', '复制代码');
+        btn.textContent = 'copy';
+        btn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(code.textContent ?? '');
+            btn.classList.add('is-copied');
+            btn.textContent = 'copied';
+            setTimeout(() => {
+              btn.classList.remove('is-copied');
+              btn.textContent = 'copy';
+            }, 1500);
+          } catch {
+            btn.textContent = 'failed';
+            setTimeout(() => { btn.textContent = 'copy'; }, 1500);
+          }
+        });
+        pre.appendChild(btn);
+      });
+    }
+    injectCopyButtons();
+    // 路由切换（若以后加 view transitions）也跑一次
+    document.addEventListener('astro:page-load', injectCopyButtons);
+
+    // ===== 2) 跨站链接顶部进度条 =====
+    let bar = null;
+    function showBar() {
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = '__top-progress';
+        bar.style.cssText = [
+          'position:fixed', 'top:0', 'left:0', 'height:2px', 'width:0',
+          'background:linear-gradient(90deg,#38bdf8,#0ea5e9)',
+          'z-index:9999', 'pointer-events:none',
+          'transition:width 1.1s cubic-bezier(0.22,1,0.36,1),opacity 0.4s ease',
+          'box-shadow:0 0 8px rgba(14,165,233,0.6)',
+        ].join(';');
+        document.body.appendChild(bar);
+      }
+      bar.style.opacity = '1';
+      // 强制 reflow 再设 width
+      bar.offsetWidth;
+      bar.style.width = '85%';
+      setTimeout(() => {
+        if (!bar) return;
+        bar.style.width = '100%';
+        bar.style.transition = 'width 0.25s ease, opacity 0.4s ease 0.2s';
+        setTimeout(() => {
+          if (!bar) return;
+          bar.style.opacity = '0';
+          setTimeout(() => { if (bar) bar.style.width = '0'; }, 500);
+        }, 280);
+      }, 1150);
+    }
+
+    document.addEventListener('click', (e) => {
+      const a = e.target instanceof Element ? e.target.closest('a[href]') : null;
+      if (!a) return;
+      const href = a.getAttribute('href') || '';
+      // 同 origin 不算跨站
+      let isExternal = false;
+      if (a.target === '_blank') isExternal = true;
+      else if (/^https?:\/\//i.test(href)) {
+        try {
+          isExternal = new URL(href).origin !== location.origin;
+        } catch { /* ignore */ }
+      }
+      if (isExternal) showBar();
+    }, { capture: true });
+  })();
+</script>

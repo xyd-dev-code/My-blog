@@ -16,10 +16,10 @@ interface Props {
 }
 
 const { post } = Astro.props;
-const { Content } = await render(post);
+const { Content, headings } = await render(post);
 const rt = readingTime(post.body ?? '');
 const readingTimeStr = rt.text.replace('min read', '分钟');
 ---
-<PostLayout post={post} readingTime={readingTimeStr}>
+<PostLayout post={post} readingTime={readingTimeStr} headings={headings}>
   <Content />
 </PostLayout>

@@ -3,7 +3,7 @@ export const SITE = {
   baseUrl: '',
   title: 'XiaoyouDong · Tech Blog',
   description:
-    '一个深色霓虹风的个人技术博客——记录学习、踩坑与项目复盘。',
+    '一个晴空主题的个人技术博客——记录学习、踩坑与项目复盘。',
   author: 'XiaoyouDong',
   lang: 'zh-CN',
   github: 'https://github.com/xyd-dev-code',

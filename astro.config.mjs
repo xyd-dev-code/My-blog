@@ -2,7 +2,7 @@ import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
 import tailwind from '@astrojs/tailwind';
 import sitemap from '@astrojs/sitemap';
-import react from '@astrojs/react';
+
 
 import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
@@ -14,7 +14,6 @@ export default defineConfig({
   site: SITE.url,
   base: SITE.baseUrl,
   integrations: [
-    react(),
     tailwind({ applyBaseStyles: false }),
     mdx(),
     sitemap(),

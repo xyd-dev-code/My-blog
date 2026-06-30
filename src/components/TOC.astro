@@ -21,7 +21,7 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
             <li class:list={[h.depth === 3 && 'ml-3']}>
               <a
                 href={`#${h.slug}`}
-                class="block text-ink-500 hover:text-sky-700 transition-colors leading-snug toc-link"
+                class="block text-ink-500 hover:text-sky-700 transition-[color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)] leading-snug toc-link"
                 data-toc-slug={h.slug}
               >
                 {h.text}

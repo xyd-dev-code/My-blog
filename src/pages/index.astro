@@ -42,17 +42,17 @@ function formatDate(d: Date) {
       <div class="mt-10 flex flex-wrap items-center justify-center gap-3">
         <a
           href="/posts"
-          class="group inline-flex items-center gap-2 rounded-full bg-sky-500 px-6 py-2.5 text-sm font-medium text-white shadow-paper hover:bg-sky-600 hover:shadow-paper-hover transition-all"
+          class="group inline-flex items-center gap-2 rounded-full bg-sky-500 px-6 py-2.5 text-sm font-medium text-white shadow-paper hover:bg-sky-600 hover:shadow-paper-hover transition-[transform,box-shadow,background-color] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
         >
           翻开文章
-          <span class="transition-transform group-hover:translate-x-1">→</span>
+          <span class="card-arrow">→</span>
         </a>
         <a
           href="/projects"
-          class="group inline-flex items-center gap-2 rounded-full border border-cloud-300 bg-white/80 backdrop-blur px-6 py-2.5 text-sm font-medium text-ink-700 hover:border-sky-400 hover:text-sky-700 transition-all"
+          class="group inline-flex items-center gap-2 rounded-full border border-cloud-300 bg-white/80 backdrop-blur px-6 py-2.5 text-sm font-medium text-ink-700 hover:border-sky-400 hover:text-sky-700 transition-[transform,box-shadow,border-color,color] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
         >
           看看项目
-          <span class="transition-transform group-hover:translate-x-1">→</span>
+          <span class="card-arrow">→</span>
         </a>
       </div>
     </div>
@@ -69,7 +69,7 @@ function formatDate(d: Date) {
       </div>
       <a
         href="/posts"
-        class="hidden sm:inline-flex items-center gap-1.5 text-sm text-sky-600 hover:text-sky-700 transition-colors"
+        class="hidden sm:inline-flex items-center gap-1.5 text-sm text-sky-600 hover:text-sky-700 transition-[color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
       >
         所有文章 <span>→</span>
       </a>
@@ -79,30 +79,35 @@ function formatDate(d: Date) {
       {posts.map((post) => (
         <a
           href={`/posts/${post.id}`}
-          class="paper-card group block overflow-hidden transition-transform hover:-translate-y-1"
+          data-tilt
+          class="paper-card group block overflow-hidden transition-[transform] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-1 relative"
         >
-          <!-- 头图（自然系占位：渐变 + 简单山丘 SVG）-->
-          <div
-            class="h-36 relative overflow-hidden"
-            style="background: linear-gradient(180deg, #bae6fd 0%, #e0f2fe 60%, #f0f9ff 100%);"
-          >
-            <svg
-              class="absolute bottom-0 left-0 w-full h-auto"
-              viewBox="0 0 400 100"
-              preserveAspectRatio="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M0,60 Q100,30 200,50 T400,55 L400,100 L0,100 Z"
-                fill="#7dd3fc"
-                opacity="0.6"
+          <!-- 头图 -->
+          <div class="h-36 relative overflow-hidden">
+            {post.data.cover ? (
+              <img
+                src={post.data.cover}
+                alt={post.data.title}
+                class="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500 ease-out"
+                loading="lazy"
               />
-              <path
-                d="M0,75 Q100,55 200,70 T400,68 L400,100 L0,100 Z"
-                fill="#38bdf8"
-                opacity="0.5"
-              />
-            </svg>
+            ) : (
+              <>
+                <div
+                  class="absolute inset-0"
+                  style="background: linear-gradient(180deg, #bae6fd 0%, #e0f2fe 60%, #f0f9ff 100%);"
+                />
+                <svg
+                  class="absolute bottom-0 left-0 w-full h-auto"
+                  viewBox="0 0 400 100"
+                  preserveAspectRatio="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path d="M0,60 Q100,30 200,50 T400,55 L400,100 L0,100 Z" fill="#7dd3fc" opacity="0.6" />
+                  <path d="M0,75 Q100,55 200,70 T400,68 L400,100 L0,100 Z" fill="#38bdf8" opacity="0.5" />
+                </svg>
+              </>
+            )}
             <div class="absolute top-3 left-3">
               <span class="tag-chip text-[10px]">{post.data.tags?.[0] ?? 'article'}</span>
             </div>
@@ -112,14 +117,14 @@ function formatDate(d: Date) {
             <div class="mb-2 flex items-center gap-2 text-xs text-ink-400">
               <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>
             </div>
-            <h3 class="font-display text-lg font-semibold text-ink-900 group-hover:text-sky-700 transition-colors line-clamp-2">
+            <h3 class="font-display text-lg font-semibold text-ink-900 group-hover:text-sky-700 transition-[color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)] line-clamp-2">
               {post.data.title}
             </h3>
             <p class="mt-2 text-sm text-ink-500 line-clamp-2 leading-relaxed">
               {post.data.description}
             </p>
             <div class="mt-4 inline-flex items-center gap-1 text-xs text-sky-600">
-              继续阅读 <span class="transition-transform group-hover:translate-x-1">→</span>
+              继续阅读 <span class="card-arrow">→</span>
             </div>
           </div>
         </a>
@@ -129,7 +134,7 @@ function formatDate(d: Date) {
 
   <!-- 简约 CTA -->
   <section class="relative mx-auto max-w-3xl px-4 sm:px-6 pb-24">
-    <div class="paper-card p-8 sm:p-10 text-center">
+    <div class="paper-card p-8 sm:p-10 text-center relative" data-tilt>
       <p class="text-ink-700 leading-relaxed">
         <span class="text-sky-600 font-medium">如果你是</span>
         <span class="text-sun-500 font-medium">工程师</span>：

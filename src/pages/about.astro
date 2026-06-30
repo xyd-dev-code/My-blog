@@ -19,44 +19,29 @@ const email = 'x2597486661@gmail.com';
       </p>
     </header>
 
-    <article class="prose-paper">
-      <p>
-        我是 <strong class="text-sky-700">XiaoyouDong</strong>，全栈工程师，主业写 Java / Vue，一名专注于后端开发的工程师。
-      </p>
+    <div class="paper-card p-6 sm:p-8">
+      <article class="prose-paper">
+        <p>
+          我是 <strong class="text-sky-700">XiaoyouDong</strong>，全栈工程师，一名专注于后端开发的工程师。
+        </p>
 
-      <h2>技术成长</h2>
-      <p>
-        我的技术探索始于扎实的编程基础，从 Java、C 语言到数据结构与计算机网络，这些课程为我构建了清晰的计算机科学认知体系。
-        我享受将复杂业务逻辑转化为高效、稳定代码的过程，尤其热衷于使用 Spring Boot、MyBatis 等主流框架构建可靠的 RESTful 服务。
-      </p>
+        <p>
+          我的技术探索始于扎实的编程基础，从 Java、C 语言到数据结构与计算机网络，这些课程为我构建了清晰的计算机科学认知体系。我享受将复杂业务逻辑转化为高效、稳定代码的过程，尤其热衷于使用 Spring Boot、MyBatis 等主流框架构建可靠的 RESTful 服务。
+        </p>
 
-      <h2>工程实践</h2>
-      <p>
-        在实习与项目实践中，我不断将理论付诸实践。无论是参与企业级业务支撑系统的维护与优化，还是独立设计在线考试系统、电商平台等项目，
-        我都致力于在架构设计、性能调优与工程规范上寻求最佳平衡。
-      </p>
-      <blockquote>
-        例如，通过引入 Redis 缓存热点数据、采用乐观锁解决高并发超卖问题，或利用 JWT 与 RBAC 模型构建安全的权限体系——
-        这些经历让我深刻体会到"代码不止于运行，更在于优雅与健壮"。
-      </blockquote>
+        <p>
+          在实习与项目实践中，我不断将理论付诸实践。无论是参与企业级业务支撑系统的维护与优化，还是独立设计在线考试系统、电商平台等项目，我都致力于在架构设计、性能调优与工程规范上寻求最佳平衡。例如，通过引入 Redis 缓存热点数据、采用乐观锁解决高并发超卖问题，或利用 JWT 与 RBAC 模型构建安全的权限体系，这些经历让我深刻体会到"代码不止于运行，更在于优雅与健壮"。
+        </p>
 
-      <h2>AI 工具与工程规范</h2>
-      <p>
-        我也积极拥抱 AI 编程辅助工具，善于通过精准的 Prompt Engineering 提升开发与调试效率，并始终保持良好的技术文档编写习惯，
-        相信清晰的表达是高效协作的基石。
-      </p>
+        <p>
+          我也积极拥抱 AI 编程辅助工具，善于通过精准的 Prompt Engineering 提升开发与调试效率，并始终保持良好的技术文档编写习惯，相信清晰的表达是高效协作的基石。
+        </p>
 
-      <h2>除了编码</h2>
-      <p>
-        除了编码，我也曾担任班级团支书，组织活动、协调事务的经历让我更注重沟通与团队协作。
-        目前，我已通过大学英语四级，并持续通过阅读、实践与分享来拓展技术视野。
-      </p>
-
-      <h2>关于这个博客</h2>
-      <p>
-        这个博客将记录我的学习心得、项目复盘与技术思考。如果你也对后端开发、系统架构或工程实践感兴趣，欢迎交流，共同进步。
-      </p>
-    </article>
+        <p>
+          这个博客将记录我的学习心得、项目复盘与技术思考。如果你也对后端开发、系统架构或工程实践感兴趣，欢迎交流，共同进步。
+        </p>
+      </article>
+    </div>
 
     <!-- 联系方式 -->
     <div class="paper-card mt-16 p-6">
@@ -78,7 +63,7 @@ const email = 'x2597486661@gmail.com';
           <button
             type="button"
             id="copy-email-btn"
-            class="text-xs font-mono px-2 py-0.5 rounded-md border border-cloud-300 text-ink-500 hover:text-sky-700 hover:border-sky-500 transition-colors"
+            class="text-xs font-mono px-2 py-0.5 rounded-md border border-cloud-300 text-ink-500 hover:text-sky-700 hover:border-sky-500 transition-[color,border-color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
             data-email={email}
             aria-label="复制邮箱到剪贴板"
           >

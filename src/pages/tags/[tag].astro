@@ -42,10 +42,11 @@ const { tagged, tag } = Astro.props;
         <li>
           <a
             href={`/posts/${post.id}`}
-            class="paper-card block p-5 transition-transform hover:-translate-y-0.5"
+            data-tilt
+            class="paper-card block p-5 transition-[transform] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-[2px] relative"
           >
             <div class="flex items-baseline justify-between gap-4 mb-2">
-              <h2 class="font-display text-lg font-semibold text-ink-900 hover:text-sky-700 transition-colors">
+              <h2 class="font-display text-lg font-semibold text-ink-900 hover:text-sky-700 transition-[color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]">
                 {post.data.title}
               </h2>
               <time
