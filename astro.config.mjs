@@ -1,0 +1,44 @@
+import { defineConfig } from 'astro/config';
+import mdx from '@astrojs/mdx';
+import tailwind from '@astrojs/tailwind';
+import sitemap from '@astrojs/sitemap';
+import react from '@astrojs/react';
+
+import rehypeSlug from 'rehype-slug';
+import rehypeAutolinkHeadings from 'rehype-autolink-headings';
+import rehypePrettyCode from 'rehype-pretty-code';
+
+import { SITE } from './src/consts';
+
+export default defineConfig({
+  site: SITE.url,
+  base: process.env.NODE_ENV === 'development' ? '/' : SITE.baseUrl,
+  integrations: [
+    react(),
+    tailwind({ applyBaseStyles: false }),
+    mdx(),
+    sitemap(),
+  ],
+  markdown: {
+    rehypePlugins: [
+      rehypeSlug,
+      [
+        rehypeAutolinkHeadings,
+        { behavior: 'wrap', properties: { className: ['heading-anchor'] } },
+      ],
+      [
+        rehypePrettyCode,
+        {
+          theme: 'github-dark-dimmed',
+          keepBackground: true,
+          defaultLang: { block: 'plaintext' },
+        },
+      ],
+    ],
+  },
+  vite: {
+    ssr: {
+      noExternal: ['@tsparticles/react', '@tsparticles/slim'],
+    },
+  },
+});

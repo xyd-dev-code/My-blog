@@ -1,0 +1,86 @@
+---
+// Pagefind 搜索组件：构建时由 pagefind 注入 index
+// 运行时查找页面上的 #search 输入框并显示结果
+---
+<link
+  href="/pagefind/pagefind-ui.css"
+  rel="stylesheet"
+/>
+
+<div id="search" class="hidden"></div>
+
+<button
+  id="search-toggle"
+  type="button"
+  aria-label="Search"
+  class="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full bg-white shadow-paper-md border border-cloud-300 flex items-center justify-center text-sky-600 hover:shadow-paper-hover hover:bg-sky-50 transition-all"
+>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-5 w-5">
+    <circle cx="11" cy="11" r="8"/>
+    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+  </svg>
+</button>
+
+<div
+  id="search-modal"
+  class="fixed inset-0 z-50 hidden items-start justify-center pt-24 px-4 bg-sky-900/30 backdrop-blur-sm"
+>
+  <div class="w-full max-w-2xl rounded-2xl border border-cloud-300 bg-white shadow-paper-lg overflow-hidden">
+    <div class="flex items-center justify-between border-b border-cloud-300 px-4 py-2 text-xs text-ink-500">
+      <span>// search</span>
+      <button id="search-close" class="hover:text-sky-600">esc</button>
+    </div>
+    <div id="search-container" class="p-4"></div>
+  </div>
+</div>
+
+<script>
+  async function init() {
+    try {
+      const path = ['/pagefind/', 'pagefind.', 'js'].join('');
+      const mod = await import(/* @vite-ignore */ path);
+      const pagefind = mod.default ?? mod;
+      if (!pagefind || !pagefind.options) return;
+
+      await pagefind.options({ excerptLength: 30 });
+      const container = document.getElementById('search-container');
+      if (!container) return;
+
+      const modal = document.getElementById('search-modal');
+      const toggle = document.getElementById('search-toggle');
+      const close = document.getElementById('search-close');
+      if (!modal || !toggle || !close) return;
+
+      new pagefind.PagefindUI({
+        element: container,
+        showImages: false,
+        showEmptyFilters: false,
+        resetStyles: false,
+        autofocus: true,
+      });
+
+      const show = () => {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        setTimeout(() => modal.querySelector('input')?.focus(), 50);
+      };
+      const hide = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      };
+      toggle.addEventListener('click', show);
+      close.addEventListener('click', hide);
+      modal.addEventListener('click', (e) => e.target === modal && hide());
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') hide();
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+          e.preventDefault();
+          show();
+        }
+      });
+    } catch {
+      // dev mode 下 pagefind 不存在
+    }
+  }
+  init();
+</script>

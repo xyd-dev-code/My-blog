@@ -1,0 +1,41 @@
+---
+// Giscus 评论组件
+// 使用前需在 GitHub 仓库 Settings → Features 开启 Discussions
+// 并安装 giscus app：https://giscus.app
+interface Props {
+  slug: string;
+}
+const { slug } = Astro.props;
+const repo = 'xyd-dev-code/My-blog';
+---
+<section class="mt-16 pt-8 border-t border-border-subtle">
+  <h2 class="font-display text-2xl font-bold mb-6">
+    <span class="text-neon-magenta font-mono">#</span>
+    <span class="text-text-primary">comments</span>
+  </h2>
+  <p class="text-text-dim font-mono text-sm mb-6">
+    <span class="text-neon-cyan">$</span> git commit -m "留下你的想法" <br />
+    <span class="text-text-mute">// 基于 GitHub Discussions，加载需要科学上网</span>
+  </p>
+  <script
+    src="https://giscus.app/client.js"
+    data-repo={repo}
+    data-repo-id="placeholder"
+    data-category="Announcements"
+    data-category-id="placeholder"
+    data-mapping="pathname"
+    data-strict="0"
+    data-reactions-enabled="1"
+    data-emit-metadata="0"
+    data-input-position="top"
+    data-theme="dark_dimmed"
+    data-lang="zh-CN"
+    crossorigin="anonymous"
+    async
+  ></script>
+  <p class="text-text-mute text-xs font-mono mt-4">
+    <span class="text-neon-lime">→</span> 评论未启用？请到
+    <a href={`https://github.com/${repo}/discussions`} target="_blank" rel="noopener" class="text-neon-cyan underline">仓库 Discussions</a>
+    配置 giscus
+  </p>
+</section>

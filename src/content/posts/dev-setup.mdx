@@ -1,0 +1,188 @@
+---
+title: "我的开发环境工具流 — Windows 11 下的赛博工作站"
+description: "终端、IDE、效率插件、命令行工具——一套跑了一年多、每天都在用的配置。"
+pubDate: 2026-06-30
+tags: ["tools", "workflow", "windows"]
+---
+
+## 总览
+
+我的工作环境在 **Windows 11** 上跑了一年多，没换过系统也没重装过。一句话总结：
+
+> **PowerShell + Windows Terminal + VS Code + 一个 pnpm 工作区**，配合少量自写脚本。
+
+下面按"打开电脑第一件事"的时间顺序介绍。
+
+## 终端层
+
+### Windows Terminal + PowerShell 7
+
+Windows Terminal 是 Microsoft 官方出的现代终端，多 tab、多 shell、原生 GPU 加速。配 **PowerShell 7**（不是默认的 5.1）作为主 shell。
+
+为什么不是 WSL？我日常 80% 任务是写前端、跑 Node 工具链，WSL 的 IO 性能在跨文件系统时会让人崩溃。PowerShell 7 + 微软的 [PSReadLine](https://github.com/PowerShell/PSReadLine) 智能补全体验已经很接近 zsh 了。
+
+### oh-my-posh — 终端颜值与信息密度
+
+[oh-my-posh](https://ohmyposh.dev/) 是跨 shell 的 prompt 主题引擎。我用 `paradox` 主题，提示符自带：
+
+- 当前 git 分支 + 状态符号
+- Node/Python 版本
+- 执行耗时
+- 上一条命令的退出码
+
+主题配置文件 `~/.poshthemes/paradox.omp.json` 直接用默认，零配置。
+
+### 字体
+
+- **Cascadia Code**（微软官方，等宽带连字）
+- **JetBrains Mono**（编辑器内备用）
+
+## Shell 工具链
+
+### 必备命令别名
+
+```powershell
+# 编辑 PowerShell profile
+notepad $PROFILE
+
+# 加入：
+function ll { Get-ChildItem -Force | Out-GridView }
+function gs { git status }
+function gp { git push }
+function gpl { git pull --rebase }
+function gco { git checkout }
+function dev { pnpm dev }
+function build { pnpm build }
+
+# pnpm 速查
+function p { pnpm }
+function pi { pnpm install }
+function pa { pnpm add }
+function pr { pnpm remove }
+```
+
+### ripgrep + fd + bat
+
+GNU coreutils 的现代替代品：
+
+| 命令 | 替代 | 用法 |
+|------|------|------|
+| `rg` | `grep -r` | 全文搜索，Rust 写的，飞快 |
+| `fd` | `find` | 文件名搜索，默认忽略 `.gitignore` |
+| `bat` | `cat` | 带语法高亮和行号 |
+| `eza` | `ls` | 树状显示 + git status |
+
+```powershell
+# 用 scoop 装
+scoop install ripgrep fd bat eza
+```
+
+### scoop — Windows 下的 Homebrew
+
+[scoop](https://scoop.sh/) 是 Windows 的包管理器。我用它装所有命令行工具：
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+irm get.scoop.sh | iex
+
+# 基础工具集
+scoop install git node-lts pnpm python go
+scoop install ripgrep fd bat eza fzf zoxide
+scoop install neofetch htop fastfetch
+```
+
+## 编辑器：VS Code
+
+### 必装插件
+
+| 插件 | 用途 |
+|------|------|
+| **Astro** | 语法高亮 + IntelliSense |
+| **Tailwind CSS IntelliSense** | class 提示 + 跳转定义 |
+| **ESLint + Prettier** | 代码风格 |
+| **GitLens** | 行内 blame、commit 历史 |
+| **Error Lens** | 把错误显示在行末 |
+| **TODO Tree** | 收集所有 `// TODO` |
+| **Thunder Client** | VS Code 内 REST 客户端 |
+| **Code Spell Checker** | 拼写检查（写博客尤其有用） |
+| **MDX** | 写博客必备 |
+
+### settings.json 关键配置
+
+```json
+{
+  "editor.fontFamily": "JetBrains Mono, Consolas, monospace",
+  "editor.fontLigatures": true,
+  "editor.fontSize": 14,
+  "editor.lineHeight": 1.6,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.bracketPairColorization.enabled": true,
+  "editor.guides.bracketPairs": "active",
+  "editor.stickyScroll.enabled": true,
+  "editor.minimap.enabled": false,
+  "workbench.colorTheme": "GitHub Dark Dimmed",
+  "terminal.integrated.fontFamily": "Cascadia Code",
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}
+```
+
+### 主题
+
+- **主色**：GitHub Dark Dimmed（眼睛最舒服的暗色之一）
+- **备用**：One Dark Pro、Tokyo Night
+- **代码字体**：JetBrains Mono（带连字，看起来 `=>` 像一个箭头）
+
+## 项目级工作流
+
+### pnpm + 工作区
+
+`pnpm` 比 npm/yarn 快 2-3 倍、磁盘占用少一半（硬链接去重）。我的所有项目都跑在 pnpm 工作区下：
+
+```
+~/code/
+├── pnpm-workspace.yaml
+├── packages/
+│   ├── ui/
+│   └── utils/
+├── apps/
+│   ├── my-blog/        # 这个博客
+│   └── zhikao-cloud/   # 主项目
+```
+
+### git 别名
+
+```bash
+git config --global alias.st status
+git config --global alias.co checkout
+git config --global alias.br branch
+git config --global alias.last "log -1 HEAD"
+git config --global alias.lg "log --oneline --graph --decorate -20"
+```
+
+`git lg` 的图形化 log 视图是每天看 50 次的命令。
+
+## 写作工具
+
+### 博客
+
+本博客，Astro + MDX。在 `src/content/posts/` 下创建文件即可。
+
+### 随手记
+
+- **快速记录**：VS Code 里的一个 `.scratchpad.md` 文件，开着 Tab 一直挂着
+- **知识库**：Obsidian，本地 Markdown 文件，双向链接
+- **稍后读**：Raindrop.io（之前用 Pocket，被收购后迁移了）
+
+## 效率哲学
+
+最后说几个非工具层面的习惯：
+
+1. **每天第一件事：列 3 个最重要的事**。一个 `.todo` 文件，不超过 5 行。
+2. **25 分钟番茄钟**。前 25 分钟不开任何 IM。
+3. **周末 0 commit**。强制自己休息，写代码脑子最累。
+4. **不追新工具**。一个工具用满 6 个月再考虑换。
+
+> 工具有效性 = 工具速度 × 使用频率。我宁可用 3 个普通工具每天用 10 次，也不要 1 个完美工具每周用 1 次。

@@ -1,0 +1,77 @@
+---
+/**
+ * 通用背景层：云朵渐变 + 漂浮云朵 SVG（CSS-only / SVG-only）
+ * 固定定位，所有页面共享
+ */
+---
+<div
+  aria-hidden="true"
+  class="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
+>
+  <!-- 顶部云层 SVG -->
+  <svg
+    class="absolute top-0 left-0 w-full h-64 opacity-40"
+    viewBox="0 0 1440 200"
+    preserveAspectRatio="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <defs>
+      <linearGradient id="cloud-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path
+      d="M0,100 Q120,60 240,80 T480,90 T720,70 T960,85 T1200,75 T1440,90 L1440,0 L0,0 Z"
+      fill="url(#cloud-gradient)"
+    />
+    <path
+      d="M0,140 Q200,110 400,125 T800,115 T1200,130 T1440,120 L1440,40 L0,40 Z"
+      fill="url(#cloud-gradient)"
+      opacity="0.6"
+    />
+  </svg>
+
+  <!-- 漂浮云朵 1 -->
+  <div
+    class="cloud-float absolute"
+    style="top: 15%; left: 10%; width: 120px; height: 60px; animation: cloud-drift 90s linear infinite; animation-delay: -20s;"
+  >
+    <svg viewBox="0 0 120 60" xmlns="http://www.w3.org/2000/svg" class="w-full h-full">
+      <ellipse cx="30" cy="40" rx="30" ry="20" fill="#ffffff" opacity="0.7"/>
+      <ellipse cx="60" cy="30" rx="35" ry="25" fill="#ffffff" opacity="0.8"/>
+      <ellipse cx="90" cy="40" rx="28" ry="18" fill="#ffffff" opacity="0.7"/>
+    </svg>
+  </div>
+
+  <!-- 漂浮云朵 2 -->
+  <div
+    class="cloud-float absolute"
+    style="top: 35%; right: 5%; width: 160px; height: 70px; animation: cloud-drift 120s linear infinite; animation-delay: -60s;"
+  >
+    <svg viewBox="0 0 160 70" xmlns="http://www.w3.org/2000/svg" class="w-full h-full">
+      <ellipse cx="40" cy="50" rx="38" ry="22" fill="#ffffff" opacity="0.6"/>
+      <ellipse cx="80" cy="35" rx="45" ry="28" fill="#ffffff" opacity="0.7"/>
+      <ellipse cx="125" cy="50" rx="32" ry="20" fill="#ffffff" opacity="0.6"/>
+    </svg>
+  </div>
+
+  <!-- 太阳光晕 -->
+  <div
+    class="absolute -top-32 -right-32 w-[500px] h-[500px] rounded-full opacity-30 blur-3xl"
+    style="background: radial-gradient(circle, rgba(252, 211, 77, 0.5) 0%, transparent 70%);"
+  ></div>
+
+  <!-- 左下天空光晕 -->
+  <div
+    class="absolute -bottom-20 -left-20 w-[400px] h-[400px] rounded-full opacity-40 blur-3xl"
+    style="background: radial-gradient(circle, rgba(125, 211, 252, 0.4) 0%, transparent 70%);"
+  ></div>
+</div>
+
+<style>
+  @keyframes cloud-drift {
+    0% { transform: translateX(-15%); }
+    100% { transform: translateX(115vw); }
+  }
+</style>

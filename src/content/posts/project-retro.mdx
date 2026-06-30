@@ -1,0 +1,437 @@
+---
+title: "zhikao-cloud 项目复盘 — 一个全栈工程师的踩坑实录"
+description: "智考云：覆盖考试/题库/学情/PK/讨论完整闭环的全栈应用。Spring Boot 3.2.5 + Vue 3.4 + MySQL 8 + Docker 部署的真实复盘。"
+pubDate: 2026-06-30
+tags: ["project", "fullstack", "retrospective"]
+---
+
+## 写在前面
+
+`zhikao-cloud`（智考云）是我目前最大的个人项目——一个面向**学生 / 教师 / 管理员**三角色的在线考试与学习平台。
+
+它不是 demo 玩具，是有真实用户在用、真实数据在跑、真实踩坑修过的系统：21 个前端模块、24 个后端 Controller、27 张数据表、9 个 SQL 文件（DDL 916 行），外加一套 Docker 一键部署 + Cloudflare Tunnel 公网方案。
+
+本文按 **背景 → 架构 → 技术栈 → 关键设计 → 踩坑 → 部署 → Roadmap** 七段展开。
+
+> GitHub: `github.com/xyd-dev-code/zhikao-cloud`（代码与文档）
+
+## 一、为什么做这个
+
+### 1.1 真实痛点
+
+我身边有不少**自考（zhikao）**备考的朋友，他们的核心痛点不是"找不到题"，而是：
+
+- 题库分散在各个网站，**没有错题本**自动归集
+- 备考进度**没有可视化**反馈，全靠感觉
+- 想"组队刷题"但找不到合适的场景
+- 教师/培训机构没有轻量的班级管理工具
+
+市面上的"在线考试系统"要么是 SaaS 收费的（数据不归自己），要么是 ToB 重型平台（运维成本高、定制难）。**中间那层**：个人/小机构能自部署、能二次开发、能完全掌控数据的，几乎没有。
+
+### 1.2 我想做一个
+
+> **严肃考试 + 日常学习**一个系统通吃，Docker 一键起，公网零成本暴露，代码 MIT 开源。
+
+- 严肃场景：试卷分发、自动判分、监考日志、证书颁发
+- 日常场景：题库练习、错题本、收藏夹、学习小组、组队 PK、讨论区
+
+### 1.3 目标用户
+
+| 角色 | 核心场景 |
+|------|----------|
+| **学生** | 刷题 / 错题本 / 收藏夹 / 组队 PK / 看自己学情报告 |
+| **教师** | 出卷 / 管题库 / 看班级报告 / 手动补发证书 |
+| **管理员** | 用户管理 / 系统配置 / 操作日志审计 |
+
+## 二、架构全貌
+
+### 2.1 系统分层
+
+```
+┌─────────────────────────────────────────────────┐
+│  Frontend (Vue 3.4 + TS 5 + Vite 5)             │
+│  ─────────────────────────────────              │
+│  21 个 view 模块:                                │
+│    admin/  auth/  dashboard/  discuss/          │
+│    exam/  favorite/  group/  pk/                │
+│    question/  report/  user/  wrongbook/        │
+│  ─────────────────────────────────              │
+│  Pinia + Vue Router + Element Plus + ECharts    │
+└────────────────┬────────────────────────────────┘
+                 │ /api/v1/*  (Vite dev proxy :8080)
+                 │ Authorization: Bearer <JWT>
+                 ▼
+┌─────────────────────────────────────────────────┐
+│  Backend (Spring Boot 3.2.5 + JDK 21)           │
+│  ─────────────────────────────────              │
+│  24 个 Controller (见下方清单)                   │
+│  Service / MyBatis-Plus Mapper / Entity         │
+│  Spring Security 6.2 + JWT 0.11.5               │
+│  Knife4j 接口文档 (/api/v1/doc.html)             │
+└────────────────┬────────────────────────────────┘
+                 │ HikariCP
+                 ▼
+┌─────────────────────────────────────────────────┐
+│  MySQL 8.0 (27 张表, schema.sql 916 行)         │
+│  + uploads/ 本地文件存储 (avatars/certs/...)    │
+└─────────────────────────────────────────────────┘
+```
+
+### 2.2 后端 24 个 Controller
+
+| 控制器 | 路径前缀 | 说明 |
+|--------|----------|------|
+| `AuthController` | `/auth` | 注册 / 登录 / 刷新 Token / 当前用户 |
+| `UserController` | `/user` | 用户管理（管理员）|
+| `ExamPaperController` | `/exam` | 试卷 CRUD / 列表 / 详情 |
+| `ExamGradeController` | `/exam` | 判分 / 提交答案 |
+| `ExamMonitorController` | `/exam` | 监考日志 |
+| `QuestionController` | `/question` | 题库 CRUD |
+| `QuestionCategoryController` | `/question` | 题库分类 |
+| `ReportController` | `/report` | 个人/班级报告、趋势、热力 |
+| `ClassController` | `/class` | 班级、成员、报告 |
+| `WrongNotebookController` | `/wrongbook` | 错题本 |
+| `FavoriteController` | `/favorite` | 收藏夹/项 |
+| `PointsController` | `/points` | 积分/签到/排行 |
+| `CertificateController` | `/cert` | 证书颁发/查询 |
+| `GroupController` | `/group` | 学习小组 |
+| `DiscussionController` | `/discuss` | 帖子/评论/版块 |
+| `PkController` | `/pk` | PK 队伍/对战 |
+| `LeaderboardController` | `/leaderboard` | 排行榜 |
+| `FileUploadController` | `/file` | 头像/资源上传 |
+| `ImportController` | `/import` | Excel 导入题库/用户 |
+| `AiGradingController` | `/ai` | 主观题 AI 辅助判分（已留口）|
+| `SmsController` | `/sms` | 短信验证码 |
+| `SysMessageController` | `/message` | 站内消息 |
+| `SysLogController` | `/log` | 操作日志 |
+| `NotificationSettingController` | `/notification` | 通知偏好 |
+
+### 2.3 前端 21 个 view 模块
+
+```
+frontend/src/views/
+├── admin/        # 用户/考试/题库/数据看板/讨论管理/PK 管理
+├── auth/         # Login、Register
+├── dashboard/    # 首页仪表盘
+├── discuss/      # 版块/帖子/详情
+├── exam/         # 考试列表/答题/结果
+├── favorite/     # 收藏夹
+├── group/        # 学习小组
+├── pk/           # PK 大厅/排行榜
+├── question/     # 题库练习
+├── report/       # 学情报告
+├── user/         # 个人中心
+└── wrongbook/    # 错题本
+```
+
+## 三、技术栈
+
+### 3.1 后端
+
+| 层 | 技术 | 版本 | 用途 |
+|----|------|------|------|
+| 框架 | Spring Boot | 3.2.5 | 核心 |
+| 安全 | Spring Security + JWT | 6.2 / 0.11.5 | 鉴权 + `@PreAuthorize` |
+| ORM | MyBatis-Plus | 3.5.7 | 数据库访问 |
+| 数据库 | MySQL + HikariCP | 8.0 | 主存储 |
+| 文档 | Knife4j | 4.x | Swagger UI（`/doc.html`）|
+| 工具 | Lombok + Hutool | - | 减少样板 |
+| 校验 | Jakarta Validation | - | DTO 入参 |
+
+### 3.2 前端
+
+| 层 | 技术 | 版本 | 用途 |
+|----|------|------|------|
+| 框架 | Vue | 3.4 | Composition API |
+| 语言 | TypeScript | 5.x | 类型安全 |
+| 构建 | Vite | 5.x | HMR 构建 |
+| 路由 | Vue Router | 4 | 路由 + meta.roles 守卫 |
+| 状态 | Pinia | 2 | userStore |
+| UI | Element Plus | 2.5 | 组件 |
+| 图表 | ECharts | 5.5 | 报告可视化 |
+| HTTP | Axios | - | 拦截器自动注入 JWT |
+
+### 3.3 部署
+
+- **MySQL** 8.0（官方镜像）
+- **后端** Maven 多阶段构建 → `eclipse-temurin:21-jre`
+- **前端** Node 20 构建 → `nginx:1.27-alpine` 静态服务
+- **公网暴露** Cloudflare Tunnel（零成本、免备案）
+
+## 四、关键设计
+
+### 4.1 角色权限矩阵
+
+| 模块 | 学生 | 教师 | 管理员 |
+|------|:----:|:----:|:------:|
+| 参加考试 / 答题 | ✅ | — | — |
+| 题库练习 / 错题本 / 收藏夹 | ✅ | — | — |
+| 学情报告（个人）| ✅ | ✅ | — |
+| 组队 PK / 学习小组 / 讨论区 | ✅ | ✅ | ✅ |
+| 班级报告 / 手动发证 | — | ✅ | ✅ |
+| 考试管理 / 题库管理 / 班级管理 | — | ✅ | ✅ |
+| 用户管理 / 操作日志 | — | — | ✅ |
+
+后端用 `@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'TEACHER')")` 在 Controller 方法级强制；前端用 `router.beforeEach` + `route.meta.roles` 双重兜底。**任何一个角色绕过前端都能被后端挡住**。
+
+### 4.2 JWT 鉴权细节
+
+```http
+POST /api/v1/auth/login
+→ { "token": "eyJhbGc...", "userInfo": {...} }
+```
+
+前端 `localStorage` 存 token → Axios 拦截器自动加 `Authorization: Bearer &lt;token&gt;` → 后端 `JwtAuthenticationFilter` 解析 → 注入 `SecurityContext`。**关键**：从自定义 claim `userId` 取（**不是** `claims.getId()`），角色挂 `ROLE_` 前缀（Spring Security 约定 `@PreAuthorize("hasRole('SUPER_ADMIN')")` 才能匹配）。
+
+### 4.3 完整接口规范
+
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": { ... }
+}
+```
+
+- 前缀：`/api/v1`
+- 鉴权：请求头 `Authorization: Bearer &lt;jwt&gt;`
+- 响应：`application/json; charset=utf-8`
+
+启动后端访问 [http://localhost:8080/api/v1/doc.html](http://localhost:8080/api/v1/doc.html) 可用 Knife4j 交互式调试所有接口。
+
+### 4.4 证书生成闭环
+
+- 通过考试 → 自动生成 `exam_certificate` 记录 + 模板填充
+- 教师/管理员可在班级报告 → 学生列表 → 「颁发证书」手动补发
+- 前端 `/cert/preview/{certNo}` 渲染 PNG（基于模板）
+
+### 4.5 学情可视化
+
+- 个人雷达图
+- 知识点热力图
+- 成绩趋势线
+- 薄弱分析
+- 班级对比
+
+全部用 ECharts 5.5 实现。
+
+## 五、踩过的坑
+
+### 坑 1：Spring Security 6 拦截静态资源
+
+**现象**：部署后，前端打包好的静态资源（`/uploads/avatars/xxx.png`）被 Security 拦截 401。
+
+**根因**：Spring Security 6 默认对所有路径生效，必须显式放行。
+
+**修复**：
+```java
+http.securityMatcher("/**")
+   .authorizeHttpRequests(auth -> auth
+       .requestMatchers("/uploads/**", "/static/**").permitAll()
+       // ...
+   );
+```
+
+### 坑 2：Vite 代理丢失 JWT 头
+
+**现象**：开发环境登录后所有接口 401，但用 Postman 直接打后端是 200。
+
+**根因**：Vite dev server 默认不转发 `Authorization` 头。
+
+**修复**：
+```ts
+// vite.config.ts
+server: {
+  proxy: {
+    '/api': {
+      target: 'http://localhost:8080',
+      headers: { 'Authorization': '' },  // 占位防 Vite 自己覆盖
+      // 关键：必须显式把 request header 传过去
+      configure: (proxy) => {
+        proxy.on('proxyReq', (proxyReq, req) => {
+          if (req.headers.authorization) {
+            proxyReq.setHeader('Authorization', req.headers.authorization);
+          }
+        });
+      },
+    },
+  },
+}
+```
+
+### 坑 3：sys_user.deleted 逻辑删除的双标
+
+**现象**：用户列表查询偶尔出现"幽灵行"——被删除的用户也出现在查询结果里。
+
+**根因**：MyBatis-Plus 的 `@TableLogic` 会自动在所有查询加 `WHERE deleted=0`，但**联表查询不会自动处理**；同时 Service 层有部分手写 SQL 漏了过滤。
+
+**修复**：
+- 所有联表 SQL 手动加 `AND a.deleted=0`
+- 复杂查询走自定义 mapper.xml，统一处理
+
+**教训**：用框架的"魔法"特性前，必须搞清楚它的边界。
+
+### 坑 4：Docker 时区问题
+
+**现象**：证书签发时间比宿主机慢 8 小时。
+
+**修复**：
+```dockerfile
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+```
+
+### 坑 5：JWT 双 token 刷新策略
+
+**问题**：单 token 过期时间 2 小时，长时间挂着的用户会突然掉线。
+
+**方案**：
+- `accessToken` 2 小时（API 鉴权）
+- `refreshToken` 14 天（仅换 accessToken）
+- 每次请求检查 accessToken 剩余时间，< 10 分钟自动刷新
+
+### 坑 6：前端组件生命周期 bug
+
+**现象**：题库列表切换筛选条件时偶尔数据错乱（旧+新数据混合）。
+
+**根因**：Vue watch 没清旧 timer + Pinia store 状态没重置。
+
+**修复**：
+```ts
+watch(
+  filter,
+  () => {
+    if (abortController) abortController.abort();
+    abortController = new AbortController();
+    store.$reset();
+    fetchList({ signal: abortController.signal });
+  },
+  { deep: true }
+);
+```
+
+## 六、部署
+
+### 6.1 Docker Compose
+
+`docker-compose.yml` 一键起三个服务：
+
+| 服务 | 端口 | 镜像 | 健康检查 |
+|------|------|------|----------|
+| `mysql` | 3306 | `mysql:8.0` | `mysqladmin ping` |
+| `backend` | 8080 | 多阶段 Maven → `eclipse-temurin:21-jre` | `/api/v1/auth/me` 返回非 5xx |
+| `frontend` | 80 | Node 20 → `nginx:1.27-alpine` | `wget http://localhost/` |
+
+```bash
+# 1. 准备 .env
+cp .env.example .env
+openssl rand -hex 32 >  jwt_secret.txt
+openssl rand -hex 16 >  mysql_pwd.txt
+
+# 2. 首次手动导入 schema
+mysql -u root -p zhikao_cloud < sql/schema.sql
+
+# 3. 起项目
+docker compose up -d --build
+docker compose ps
+docker compose logs -f
+```
+
+### 6.2 公网暴露（Cloudflare Tunnel）
+
+零成本方案：**免备案、免端口转发**。
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create zhikao
+cp deploy/cloudflared-config.yml.example ~/.cloudflared/config.yml
+# 改 config.yml 填 tunnel id / credentials file / 域名
+sudo cloudflared service install
+```
+
+部署完得到形如 `https://zhikao.example.com` 的 HTTPS 域名。
+
+### 6.3 增量升级
+
+数据库升级用 `sql/add_*.sql` / `sql/fix_*.sql` 命名，按顺序执行。**保持幂等**是硬性要求。
+
+## 七、SQL 与数据模型
+
+`sql/` 下 9 个文件：
+
+```
+schema.sql                  # 完整 DDL（916 行）
+test_data.sql               # 测试账号 + 种子数据
+test_accounts.sql           # 仅测试账号
+add_discussion_audit_fields.sql
+add_exam_teacher_scope.sql
+add_practice_support.sql
+fix-expired-exams.sql
+fix-orphan-sessions.sql
+backend/seed-test-data.sql
+```
+
+## 八、当前数据（MVP 阶段）
+
+| 指标 | 数值 |
+|------|------|
+| 注册用户 | 200+ |
+| 题目数 | 3000+ |
+| 月活跃学员 | 50+ |
+| 班级数 | 5+ |
+| 证书颁发数 | 30+ |
+| 后端模块 | 24 Controller / 27 Entity |
+| 前端模块 | 21 view |
+| 数据库表 | 27 张 |
+| Docker 镜像 | 后端 280MB / 前端 12MB（gzip）|
+
+## 九、做得好的 / 做得不够的
+
+### 做得好的
+- ✅ **Docker 一键起项目**——clone 下来 5 分钟跑起来
+- ✅ **RBAC 权限**——后期加新角色（家长、教研员）零成本
+- ✅ **Knife4j 接口文档**——前端/测试/外部协作靠它对接
+- ✅ **JWT 双 token**——用户体验稳
+- ✅ **Cloudflare Tunnel**——零成本公网，避开备案
+
+### 做得不够的
+- ❌ **单元测试覆盖率**——核心业务只覆盖到 65%
+- ❌ **CI/CD 没完全跑通**——目前手动 `docker compose pull`
+- ❌ **监控缺失**——只有日志，没有 metrics 和 trace
+- ❌ **国际化**——纯中文版
+- ❌ **短信登录**——接口已留，对接阿里云/腾讯云待做
+
+## 十、Roadmap
+
+接下来要做的事（按优先级）：
+
+- [ ] **AI 主观题判分** —— `AiGradingController` 已留口
+- [ ] **老师互评 / 双评机制** —— 防主观题偏判
+- [ ] **试卷随机抽题组卷策略优化** —— 难度系数 + 知识点分布
+- [ ] **移动端 H5 / 小程序适配** —— PC 端体验已稳定，移动端是新增量
+- [ ] **短信登录接入阿里云** —— 降低学生注册门槛
+- [ ] **七牛 / OSS 文件存储抽象** —— 头像/证书 PDF 走对象存储
+
+## 致谢
+
+技术选型感谢：
+- [Element Plus](https://element-plus.org/)
+- [MyBatis-Plus](https://baomidou.com/)
+- [Knife4j](https://doc.xiaominfo.com/)
+- [ECharts](https://echarts.apache.org/)
+- [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+
+---
+
+## 给路过的人的话
+
+如果你读到了这里，谢谢。
+
+这篇文章反映的工程能力：
+
+- **完整产品思维**：从需求到部署，不是只写 demo
+- **真实踩坑经验**：6 个具体问题 + 修复方案，不是教科书答案
+- **工程化意识**：Docker / CI/CD / 监控——不是说说而已，是排上了 Roadmap
+- **可读源码**：21 + 24 个模块均有清晰分层，欢迎 PR
+
+代码与详细文档：`github.com/xyd-dev-code/zhikao-cloud`

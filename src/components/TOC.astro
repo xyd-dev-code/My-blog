@@ -1,0 +1,67 @@
+---
+import type { MarkdownHeading } from 'astro';
+
+interface Props {
+  headings: MarkdownHeading[];
+}
+
+const { headings } = Astro.props;
+
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+{toc.length > 0 && (
+  <aside class="hidden lg:block">
+    <div class="sticky top-24 w-64">
+      <p class="font-mono text-xs uppercase tracking-widest text-ink-400 mb-3">
+        本文目录
+      </p>
+      <nav class="border-l-2 border-cloud-300 pl-4">
+        <ul class="space-y-2 text-sm">
+          {toc.map((h) => (
+            <li class:list={[h.depth === 3 && 'ml-3']}>
+              <a
+                href={`#${h.slug}`}
+                class="block text-ink-500 hover:text-sky-700 transition-colors leading-snug toc-link"
+                data-toc-slug={h.slug}
+              >
+                {h.text}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </div>
+  </aside>
+)}
+
+<script>
+  const links = document.querySelectorAll<HTMLAnchorElement>('a.toc-link');
+  if (links.length > 0) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const id = entry.target.id;
+          links.forEach((l) => {
+            const slug = l.getAttribute('data-toc-slug');
+            if (slug === id) {
+              l.classList.add('text-sky-700', 'font-semibold');
+              l.classList.remove('text-ink-500');
+            } else {
+              l.classList.remove('text-sky-700', 'font-semibold');
+              l.classList.add('text-ink-500');
+            }
+          });
+        });
+      },
+      { rootMargin: '-100px 0px -70% 0px', threshold: 0 }
+    );
+    links.forEach((l) => {
+      const slug = l.getAttribute('data-toc-slug');
+      if (slug) {
+        const target = document.getElementById(slug);
+        if (target) observer.observe(target);
+      }
+    });
+  }
+</script>

@@ -1,0 +1,41 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+import { formatDateShort } from '~/utils/date';
+
+const posts = (await getCollection('posts', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+
+const tagCounts = new Map<string, number>();
+posts.forEach((p) =>
+  (p.data.tags ?? []).forEach((t) => tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1))
+);
+const tags = Array.from(tagCounts.entries()).sort((a, b) => b[1] - a[1]);
+---
+<BaseLayout title="Tags" description="所有文章标签。">
+  <section class="mx-auto max-w-4xl px-4 sm:px-6 py-12">
+    <header class="mb-10 text-center">
+      <h1 class="font-display text-3xl sm:text-4xl font-bold text-ink-900">
+        文章标签
+      </h1>
+      <p class="mt-2 text-sm text-ink-500 font-serif italic">
+        // {tags.length} 个标签 · {posts.length} 篇文章
+      </p>
+    </header>
+
+    <div class="flex flex-wrap gap-2 justify-center">
+      {tags.map(([tag, count], i) => (
+        <a
+          href={`/tags/${tag}`}
+          class:list={[
+            'tag-chip text-sm px-3 py-1',
+            i % 3 === 1 ? 'tag-chip-warm' : i % 3 === 2 ? 'tag-chip-leaf' : '',
+          ]}
+        >
+          <span class="font-semibold">#{tag}</span>
+          <span class="opacity-70">×{count}</span>
+        </a>
+      ))}
+    </div>
+  </section>
+</BaseLayout>

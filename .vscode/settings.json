@@ -1,0 +1,12 @@
+{
+  "tailwindCSS.experimental.classRegex": [
+    ["clsx\\(([^)]*)\\)", "([^\\s]+)"],
+    ["cn\\(([^)]*)\\)", "(?:'|\\")([^']+)(?:'|\\")"]
+  ],
+  "editor.quickSuggestions": {
+    "strings": "on"
+  },
+  "[astro]": {
+    "editor.defaultFormatter": "astro-build.astro-vscode"
+  }
+}

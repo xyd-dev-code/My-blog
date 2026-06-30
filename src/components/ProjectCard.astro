@@ -1,0 +1,161 @@
+---
+import { type CollectionEntry } from 'astro:content';
+
+interface Props {
+  project: CollectionEntry<'posts'>;
+}
+
+const { project } = Astro.props;
+const data = project.data;
+const tags = data.tags ?? [];
+
+// 专属封面：考试主题（考卷+笔+对勾）
+const isZhikao = project.id === 'project-retro';
+---
+<a
+  href={`/posts/${project.id}`}
+  class="paper-card group block overflow-hidden transition-transform hover:-translate-y-1"
+>
+  <!-- 头图 -->
+  <div
+    class="h-40 relative overflow-hidden"
+    style={isZhikao
+      ? 'background: linear-gradient(160deg, #0c4a6e 0%, #0369a1 40%, #38bdf8 100%);'
+      : 'background: linear-gradient(180deg, #bae6fd 0%, #e0f2fe 100%);'}
+  >
+    {isZhikao ? (
+      <!-- zhikao-cloud 专属封面：星空考试场景 -->
+      <svg
+        class="absolute inset-0 w-full h-full"
+        viewBox="0 0 400 160"
+        preserveAspectRatio="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <!-- 星星 -->
+        <g fill="#fef3c7" opacity="0.8">
+          <circle cx="40" cy="20" r="1.2"/>
+          <circle cx="120" cy="35" r="0.8"/>
+          <circle cx="180" cy="15" r="1"/>
+          <circle cx="260" cy="28" r="0.9"/>
+          <circle cx="340" cy="18" r="1.1"/>
+          <circle cx="370" cy="42" r="0.7"/>
+          <circle cx="60" cy="55" r="0.8"/>
+          <circle cx="220" cy="48" r="0.9"/>
+        </g>
+
+        <!-- 考卷（主视觉）-->
+        <g transform="translate(120, 38) rotate(-3)">
+          <!-- 纸张阴影 -->
+          <rect x="3" y="3" width="140" height="100" rx="4" fill="#0f172a" opacity="0.3"/>
+          <!-- 纸张 -->
+          <rect x="0" y="0" width="140" height="100" rx="4" fill="#fafcff" stroke="#e2e8f0" stroke-width="1"/>
+          <!-- 标题栏（蓝条）-->
+          <rect x="0" y="0" width="140" height="14" rx="4" fill="#0ea5e9"/>
+          <rect x="0" y="10" width="140" height="4" fill="#0ea5e9"/>
+          <!-- 题目线条（题号）-->
+          <g fill="#94a3b8" font-family="JetBrains Mono, monospace" font-size="6" font-weight="700">
+            <text x="8" y="26">01</text>
+            <text x="8" y="42">02</text>
+            <text x="8" y="58">03</text>
+            <text x="8" y="74">04</text>
+            <text x="8" y="90">05</text>
+          </g>
+          <!-- 题目横线 -->
+          <g stroke="#cbd5e1" stroke-width="1">
+            <line x1="22" y1="24" x2="130" y2="24"/>
+            <line x1="22" y1="28" x2="115" y2="28"/>
+            <line x1="22" y1="40" x2="130" y2="40"/>
+            <line x1="22" y1="44" x2="120" y2="44"/>
+            <line x1="22" y1="56" x2="130" y2="56"/>
+            <line x1="22" y1="60" x2="100" y2="60"/>
+            <line x1="22" y1="72" x2="130" y2="72"/>
+            <line x1="22" y1="76" x2="125" y2="76"/>
+            <line x1="22" y1="88" x2="130" y2="88"/>
+            <line x1="22" y1="92" x2="110" y2="92"/>
+          </g>
+          <!-- 已作答的对勾（lime 绿）-->
+          <g stroke="#22c55e" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="108,22 112,26 118,18"/>
+            <polyline points="108,38 112,42 118,34"/>
+          </g>
+          <!-- 未作答的圆圈（橙色）-->
+          <g stroke="#f59e0b" stroke-width="1.5" fill="none">
+            <circle cx="113" cy="56" r="4"/>
+            <circle cx="113" cy="72" r="4"/>
+            <circle cx="113" cy="88" r="4"/>
+          </g>
+        </g>
+
+        <!-- 铅笔（右上角斜放）-->
+        <g transform="translate(290, 100) rotate(-30)">
+          <!-- 笔身 -->
+          <rect x="0" y="0" width="70" height="8" rx="1" fill="#fcd34d"/>
+          <rect x="0" y="0" width="10" height="8" fill="#0369a1"/>
+          <!-- 笔尖 -->
+          <polygon points="70,0 80,4 70,8" fill="#fef3c7"/>
+          <polygon points="78,3 80,4 78,5" fill="#0f172a"/>
+          <!-- 笔尾橡皮 -->
+          <rect x="-6" y="0" width="6" height="8" fill="#ff00aa" opacity="0.7"/>
+        </g>
+
+        <!-- 底部光晕（让深色不沉闷）-->
+        <ellipse cx="200" cy="155" rx="200" ry="20" fill="#0ea5e9" opacity="0.4"/>
+      </svg>
+    ) : (
+      <!-- 默认封面：自然系山丘 + 太阳 -->
+      <svg
+        class="absolute inset-0 w-full h-full"
+        viewBox="0 0 400 160"
+        preserveAspectRatio="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <circle cx="80" cy="50" r="22" fill="#fcd34d" opacity="0.9"/>
+        <circle cx="80" cy="50" r="32" fill="#fcd34d" opacity="0.2"/>
+        <path
+          d="M0,110 Q80,75 160,95 T320,90 T400,100 L400,160 L0,160 Z"
+          fill="#7dd3fc"
+          opacity="0.5"
+        />
+        <path
+          d="M0,125 Q100,100 200,118 T400,115 L400,160 L0,160 Z"
+          fill="#38bdf8"
+          opacity="0.55"
+        />
+        <path
+          d="M0,140 Q150,128 300,138 T400,135 L400,160 L0,160 Z"
+          fill="#22c55e"
+          opacity="0.7"
+        />
+      </svg>
+    )}
+
+    <div class="absolute top-3 left-3">
+      <span class:list={['tag-chip', isZhikao ? 'bg-white/90 text-sky-700' : 'bg-white/80 text-sky-700']}>
+        {isZhikao ? '⭐ featured' : '项目'}
+      </span>
+    </div>
+  </div>
+
+  <div class="p-5">
+    <h3 class="font-display text-lg font-semibold text-ink-900 group-hover:text-sky-700 transition-colors">
+      {data.title}
+    </h3>
+    <p class="mt-2 text-sm text-ink-500 line-clamp-2 leading-relaxed">
+      {data.description}
+    </p>
+    {tags.length > 0 && (
+      <div class="mt-4 flex flex-wrap gap-1.5">
+        {tags.slice(0, 4).map((t, i) => (
+          <span
+            class:list={[
+              'tag-chip',
+              i % 3 === 1 ? 'tag-chip-warm' : i % 3 === 2 ? 'tag-chip-leaf' : '',
+            ]}
+          >
+            #{t}
+          </span>
+        ))}
+      </div>
+    )}
+  </div>
+</a>

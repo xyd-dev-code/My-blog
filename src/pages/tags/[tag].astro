@@ -1,0 +1,64 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+import { formatDateShort } from '~/utils/date';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('posts', ({ data }) => !data.draft);
+  const tagSet = new Set<string>();
+  posts.forEach((p) => (p.data.tags ?? []).forEach((t) => tagSet.add(t)));
+
+  return Array.from(tagSet).map((tag) => {
+    const tagged = posts
+      .filter((p) => (p.data.tags ?? []).includes(tag))
+      .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+    return { params: { tag }, props: { tagged, tag } };
+  });
+}
+
+const { tagged, tag } = Astro.props;
+---
+<BaseLayout title={`#${tag}`} description={`所有标签为 ${tag} 的文章`}>
+  <section class="mx-auto max-w-4xl px-4 sm:px-6 py-12">
+    <nav class="mb-6 text-xs text-ink-400">
+      <a href="/" class="hover:text-sky-600">~</a>
+      <span class="mx-2">/</span>
+      <a href="/posts" class="hover:text-sky-600">posts</a>
+      <span class="mx-2">/</span>
+      <a href="/tags" class="hover:text-sky-600">tags</a>
+      <span class="mx-2">/</span>
+      <span class="text-sky-600">#{tag}</span>
+    </nav>
+
+    <h1 class="font-display text-3xl sm:text-4xl font-bold mb-2">
+      <span class="text-sky-600">#</span>{tag}
+    </h1>
+    <p class="text-ink-500 text-sm mb-10">
+      <span class="text-leaf-500">●</span> {tagged.length} 篇
+    </p>
+
+    <ul class="space-y-4">
+      {tagged.map((post) => (
+        <li>
+          <a
+            href={`/posts/${post.id}`}
+            class="paper-card block p-5 transition-transform hover:-translate-y-0.5"
+          >
+            <div class="flex items-baseline justify-between gap-4 mb-2">
+              <h2 class="font-display text-lg font-semibold text-ink-900 hover:text-sky-700 transition-colors">
+                {post.data.title}
+              </h2>
+              <time
+                datetime={post.data.pubDate.toISOString()}
+                class="text-xs text-ink-400 shrink-0"
+              >
+                {formatDateShort(post.data.pubDate)}
+              </time>
+            </div>
+            <p class="text-sm text-ink-500 line-clamp-2">{post.data.description}</p>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+</BaseLayout>
