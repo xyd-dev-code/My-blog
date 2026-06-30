@@ -1,0 +1,36 @@
+backend:
+  name: github
+  repo: xyd-dev-code/My-blog
+  branch: main
+  base_url: https://identity.netlify.com
+  auth_endpoint: auth
+  open_authoring: false
+  commit_messages:
+    create: "feat(posts): 新增 {{slug}}"
+    update: "chore(posts): 更新 {{slug}}"
+    delete: "chore(posts): 删除 {{slug}}"
+    uploadMedia: "chore(media): 上传 {{path}}"
+    deleteMedia: "chore(media): 删除 {{path}}"
+    openAuthoring: "docs: {{message}}"
+
+media_folder: "public/images/uploads"
+public_folder: "/My-blog/images/uploads"
+
+collections:
+  - name: "posts"
+    label: "文章"
+    folder: "src/content/posts"
+    create: true
+    slug: "{{year}}-{{month}}-{{day}}-{{slug}}"
+    extension: "mdx"
+    format: "frontmatter"
+    fields:
+      - { label: "URL Slug", name: "slug", widget: "string", hint: "文件名后缀，只用英文/数字/横杠（例: my-first-post）" }
+      - { label: "标题", name: "title", widget: "string" }
+      - { label: "描述", name: "description", widget: "text" }
+      - { label: "发布日期", name: "pubDate", widget: "datetime", format: "YYYY-MM-DD", date_format: "YYYY-MM-DD", time_format: false }
+      - { label: "更新日期", name: "updatedDate", widget: "datetime", required: false, format: "YYYY-MM-DD", date_format: "YYYY-MM-DD", time_format: false }
+      - { label: "标签", name: "tags", widget: "list", default: [] }
+      - { label: "封面图", name: "cover", widget: "image", required: false, allow_multiple: false }
+      - { label: "草稿", name: "draft", widget: "boolean", default: false, required: false }
+      - { label: "正文", name: "body", widget: "markdown" }
