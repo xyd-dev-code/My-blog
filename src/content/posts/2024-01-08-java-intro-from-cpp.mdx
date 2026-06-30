@@ -1,0 +1,225 @@
+---
+title: "Java 入门笔记 — 从 C++ 转过来的 5 个思维转弯"
+description: "寒假开始啃 Java，第一周记下的踩坑合集：== vs equals、值传递、static、this 指针、还有 Java 没有的东西。"
+pubDate: 2024-01-08
+tags: ["Java", "入门", "笔记", "C++对比"]
+---
+
+## 起因
+
+寒假在家开始啃 Java。原因是下学期有一门课用 Java 教数据结构（`TreeMap`、`HashMap` 这些得熟悉），而且以后做项目基本绕不开 Java。
+
+但学了两天就被各种小细节恶心到了——`==` 和 `equals` 让我 debug 到半夜，`static` 关键字看了三个教程还是懵。这篇记一下前 5 个让我抓狂的"思维转弯"。
+
+## 转弯 1：`==` vs `equals`
+
+C++ 里 `==` 重载由你决定，Java 里 `==` 有**严格定义**：对于引用类型，`==` 比较的是**两个引用是否指向同一个对象**。
+
+```java
+String a = new String("hello");
+String b = new String("hello");
+System.out.println(a == b);       // false! 引用不同
+System.out.println(a.equals(b));  // true  内容相同
+```
+
+我当时就懵了：两个内容一样的字符串，凭什么 `==` 是 false？
+
+**正解**：Java 的 `String` 类重写了 `Object.equals`，让它比较内容。但 `==` 比较的是地址。  
+**实战**：**永远用 `equals` 比较对象内容，`==` 只用于比较基本类型**。
+
+```java
+String s = "hello";
+String t = "hello";
+System.out.println(s == t);  // true! 这是字符串常量池的优化
+```
+
+等等这条又是 true ？？我当时差点把电脑砸了。
+
+**字符串常量池**：`String s = "hello"` 时，JVM 先在池里找有没有 "hello"，有就直接返回。  
+所以 `s` 和 `t` 指向**同一个常量池对象**，`==` 是 true。
+
+**实战铁律**：
+
+```java
+// ❌ 千万别这么写
+if (name == "admin") { ... }
+
+// ✅ 永远这么写
+if (name.equals("admin")) { ... }
+// 或者防 null
+if ("admin".equals(name)) { ... }
+```
+
+## 转弯 2：值传递的"陷阱"
+
+Java **永远按值传递**。这个我写第一篇博客（指针 vs 引用）就讲过了，但当时还没真正理解，吃了大亏。
+
+```java
+public static void swap(Integer a, Integer b) {
+    Integer tmp = a;
+    a = b;
+    b = tmp;
+}
+
+public static void main(String[] args) {
+    Integer x = 1, y = 2;
+    swap(x, y);
+    System.out.println(x + " " + y);  // 1 2，没换！
+}
+```
+
+我当时心想：Integer 不是对象吗？传引用应该能换啊？
+
+**正解**：`Integer` 是不可变对象，方法内交换的是**引用的拷贝**，原件没变。  
+要真正交换，得用数组或者返回：
+
+```java
+public static Integer[] swap(Integer a, Integer b) {
+    return new Integer[]{b, a};  // 返回新值
+}
+```
+
+> 这个坑 Java 集合框架里到处都是：`list.add(x)` 看起来"传引用"，但 `list` 本身的引用没法换。
+
+## 转弯 3：`static` 的真实含义
+
+C++ 里 `static` 有 3 个完全不同的含义（局部变量/全局变量/类成员），Java 简化了：只有**类成员 `static`** 这一个意思。
+
+```java
+public class Student {
+    private String name;     // 每个学生有自己的 name
+    private static int count;  // 全班共享一个 count
+
+    public Student(String name) {
+        this.name = name;
+        count++;  // 每 new 一个学生，count 加 1
+    }
+
+    public static int getCount() {
+        return count;  // static 方法只能访问 static 字段
+    }
+}
+```
+
+**关键点**：
+
+- `static` 字段属于**类**，所有对象共享一份
+- `static` 方法不能访问非 static 字段（因为它不知道是哪个对象）
+- `static` 方法可以在没有对象的情况下调用：`Student.getCount()`
+
+```java
+Student s1 = new Student("Alice");
+Student s2 = new Student("Bob");
+System.out.println(Student.getCount());  // 2
+```
+
+## 转弯 4：`this` 不是指针
+
+C++ 里 `this` 是 `T* const`，可以改指向的对象（成员函数里 `*this = ...`）。  
+Java 里 `this` 是**引用**，但**不能再被赋值**（`this = null` 编译报错）。
+
+```java
+public class Person {
+    private String name;
+
+    public Person setName(String name) {
+        this.name = name;  // this.name = 当前对象的 name 字段
+        return this;       // 返回自己，方便链式调用
+    }
+}
+
+// 链式调用
+Person p = new Person().setName("Alice").setName("Bob");
+```
+
+**实战**：`return this` 是 Builder 模式的基础。
+
+```java
+new StringBuilder()
+    .append("hello ")
+    .append("world")
+    .toString();
+```
+
+## 转弯 5：Java 没有的东西
+
+有些东西是 C++ 有但 Java 没有的，新手要知道：
+
+| C++ | Java | 说明 |
+|-----|------|------|
+| `#include` | `import` | 编译期 vs 运行期类加载 |
+| 多继承 | `interface` 多实现 | 用接口绕开菱形继承 |
+| 运算符重载 | 无 | `String +` 是特例 |
+| 指针 | 无（只有引用）| 见上一篇 |
+| `struct` | 无（用 class） | C++ struct 默认 public |
+| 析构函数 | `finalize` / 资源用 try-with-resources | Java 9 已弃用 finalize |
+| 模板 | **泛型（擦除）** | Java 泛型不保留类型，运行时都是 `Object` |
+| `const` | `final` | final 不等于 const，引用对象内容还能改 |
+
+**泛型擦除**这个坑最深：
+
+```java
+List<String> a = new ArrayList<>();
+List<Integer> b = new ArrayList<>();
+System.out.println(a.getClass() == b.getClass());  // true！
+```
+
+`a` 和 `b` 在运行时是同一个类。这导致很多 C++ 模板能做的，Java 泛型做不了。
+
+## 第一个完整小程序：Student 类
+
+把这些概念串起来：
+
+```java
+public class Student {
+    private String name;
+    private int age;
+    private static int totalCount = 0;
+
+    public Student(String name, int age) {
+        this.name = name;
+        this.age = age;
+        totalCount++;
+    }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public int getAge() { return age; }
+    public void setAge(int age) {
+        if (age > 0) this.age = age;  // 简单校验
+    }
+
+    public static int getTotalCount() { return totalCount; }
+
+    @Override
+    public String toString() {
+        return "Student{name='" + name + "', age=" + age + "}";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Student)) return false;
+        Student s = (Student) o;
+        return age == s.age && name.equals(s.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, age);  // 31 * name.hashCode() + age
+    }
+}
+```
+
+注意三个被我重写的方法：
+
+- `toString`：调试时打印对象
+- `equals`：按内容比较
+- `hashCode`：放进 `HashMap`/`HashSet` 必备
+
+> **铁律**：**重写 `equals` 必须重写 `hashCode`**，否则 `HashMap` 找不到对象。
+
+## 下一步
+
+下一篇写 **OSI 七层模型 & TCP/IP 四层**——下学期计算机网络课要开，先把基础打掉。

@@ -1,0 +1,395 @@
+---
+title: "Git Flow 协作踩坑实录 — 我们组第一次合并分支打起来了"
+description: "3 个人第一次用 Git Flow 协作开发，从分支冲突到规范化的全过程。具体到每条命令、每个 IDEA 操作步骤，以及最后定的'组规'。"
+pubDate: 2025-02-08
+tags: ["Git", "协作", "笔记", "Git Flow"]
+---
+
+## 起因
+
+下学期的项目要求 3 个人协作，老师要求用 Git Flow。
+
+我之前的所有项目都是**自己一个人写**，git 操作就是 add → commit → push 三连，连分支都没怎么开过。
+
+第一次小组协作，我以为很简单，结果第一天就翻车了——三个人同时改了 `UserService.java`，**合并时冲突 50 行**，差点打起来。
+
+这篇记一下完整的"从翻车到规范"过程。
+
+## 翻车现场复盘
+
+### 当时的场景
+
+```
+main:        ●─────●─────●─────●     (主分支，没人敢动)
+develop:     ●─────●─────●            (开发分支)
+                  \         \
+feature/login:      ●─●─●─●          (我做的登录功能)
+feature/cart:            ●─●─●─●    (小李做的购物车)
+```
+
+我和小李**同时**从 develop 拉了分支，**同时**开发了 3 天，**同时**要合并回 develop。
+
+**合并时**：Git 提示 `UserService.java` 有冲突。
+
+打开文件一看：
+
+```java
+<<<<<<< HEAD
+public User login(String username, String password) {
+    // 我的版本：用 MD5 加密
+    return userMapper.findByNameAndPwd(username, md5(password));
+=======
+public User login(String username, String password) {
+    // 小李的版本：加了 Redis 缓存
+    String cached = redis.get("user:" + username);
+    if (cached != null) return JSON.parse(cached);
+    User user = userMapper.findByNameAndPwd(username, password);
+    redis.setex("user:" + username, 600, JSON.toJSONString(user));
+    return user;
+>>>>>>> feature/cart
+}
+```
+
+我俩对着这 50 行代码，**谁也不知道对方逻辑对不对**，硬着头皮合并完，**测试都没过**，最后回滚了一次。
+
+这次教训之后，我们坐下来定了一套"组规"。
+
+## 我们定的组规
+
+### 1. 主分支不允许直接 push
+
+- `main`：生产分支，**只有 PM 能合并**
+- `develop`：集成分支，**每次合并必须 rebase**
+
+### 2. 每个功能一个分支
+
+格式：`feature/作者名-功能名`，例如：
+
+- `feature/ouyang-login`
+- `feature/lisi-cart`
+- `feature/wang-product`
+
+### 3. 每天开工先 rebase
+
+```bash
+# 每天早上的第一件事
+git checkout develop
+git pull origin develop
+git checkout feature/ouyang-login
+git rebase develop
+```
+
+**目的**：本地分支始终基于最新的 develop，**减少合并冲突**。
+
+### 4. 合并前必须本地测试
+
+合并到 develop 前，**必须跑一遍单元测试 + 接口测试**，不然就退回。
+
+### 5. Commit message 必须写清楚
+
+之前我们写的：
+
+```
+update
+fix bug
+改了一下
+```
+
+现在要求：
+
+```
+feat(login): 新增密码 MD5 加密
+fix(cart): 修复购物车数量计算错误
+refactor(user): 抽取 UserService 公共方法
+```
+
+**类型** + **作用域** + **一句话说明**。
+
+## 第一次按规范操作的完整流程
+
+接下来我用真实的例子演示一遍。
+
+### 场景：我要做"用户头像上传"功能
+
+#### Step 1：拉新分支
+
+```bash
+# 切到 develop，先更新
+git checkout develop
+git pull origin develop
+
+# 拉新分支
+git checkout -b feature/ouyang-avatar
+
+# 推送到远程
+git push -u origin feature/ouyang-avatar
+```
+
+`-u` 设置 upstream，下次直接 `git push` 就行。
+
+#### Step 2：开发 + 多次 commit
+
+开发过程中，**做了几件事就 commit 几次**，不要攒到最后：
+
+```bash
+git add AvatarController.java
+git commit -m "feat(avatar): 新增头像上传 Controller"
+
+git add AvatarService.java
+git commit -m "feat(avatar): 新增头像上传 Service"
+
+git add AvatarServiceTest.java
+git commit -m "test(avatar): 新增头像上传 Service 单测"
+
+git push  # 推送到远程（个人分支可以随时 push）
+```
+
+#### Step 3：开发完了，先 rebase 再合并
+
+```bash
+# 1. 切回 develop，拉最新
+git checkout develop
+git pull origin develop
+
+# 2. 切回自己的分支，rebase 到最新 develop
+git checkout feature/ouyang-avatar
+git rebase develop
+```
+
+**rebase 的作用**：把我们的 commit "重演"到 develop 最新提交之后，**保持历史线性**。
+
+但这次 rebase **果然有冲突**——小李也在 UserService 改了东西。
+
+```
+CONFLICT (content): Merge conflict in UserService.java
+```
+
+打开冲突文件：
+
+```java
+public User getCurrentUser() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth == null) {
+        return null;  // 小李加的：之前没处理 null
+    }
+    return (User) auth.getPrincipal();
+}
+```
+
+这次冲突**很简单**，因为我和小李改的不是同一段代码。手动保留双方代码：
+
+```java
+// 保留小李加的 null 判断
+// 保留我自己的逻辑
+public User getCurrentUser() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    if (auth == null) {
+        return null;  // 小李加的
+    }
+    return (User) auth.getPrincipal();
+}
+```
+
+标记为已解决：
+
+```bash
+git add UserService.java
+git rebase --continue
+```
+
+如果 rebase 过程中改错想放弃：
+
+```bash
+git rebase --abort  # 一键回到 rebase 之前
+```
+
+#### Step 4：推送到远程
+
+rebase 之后，**远程分支和本地不一致了**（因为 commit hash 变了），需要强制推送：
+
+```bash
+git push --force-with-lease origin feature/ouyang-avatar
+```
+
+> **铁律**：`--force-with-lease` 比 `--force` 安全——它会检查远程有没有别人新的提交，**有就拒绝强推**，避免覆盖别人代码。
+
+#### Step 5：本地测试
+
+跑测试：
+
+```bash
+mvn test
+# 或在 IDEA 里右键 Run All Tests
+```
+
+跑接口测试（用 Postman 或 Apifox）：
+
+```
+POST /api/avatar/upload  ← 上传头像
+GET  /api/avatar/{userId} ← 获取头像
+```
+
+**测试通过**才能合并。
+
+#### Step 6：合并到 develop
+
+在 GitHub/GitLab 上发起 **Pull Request**（PR）：
+
+- 标题：`[feature] 用户头像上传`
+- 描述：贴上工单号 + 改动列表 + 截图
+- Reviewer：另外两个组员
+
+等**至少一个人 approve** 才能合并。合并按钮点 `Squash and merge`（把多个 commit 合成一个，保持 develop 历史干净）。
+
+### 完整命令时间线
+
+```bash
+# 周一早上
+git checkout develop && git pull
+git checkout -b feature/ouyang-avatar
+git push -u origin feature/ouyang-avatar
+
+# 周一到周五开发（每天 commit + push）
+git add . && git commit -m "..." && git push
+
+# 周五下班前
+git checkout develop && git pull
+git checkout feature/ouyang-avatar
+git rebase develop  # 解决可能的冲突
+git push --force-with-lease
+
+# 跑测试
+mvn test
+
+# 在 GitHub/GitLab 上提 PR，等同事 review
+```
+
+## 我踩过的 5 个具体坑
+
+### 坑 1：commit 大杂烩
+
+我之前写：
+
+```bash
+git add .
+git commit -m "feat: 登录、购物车、订单都做完了"
+```
+
+一个 commit 包含 3 个不相关功能。**review 的人看到这种 commit 直接头大**。
+
+**正解**：每个功能单独 commit。
+
+### 坑 2：commit 信息撒谎
+
+```
+feat(login): 修复购物车 bug
+```
+
+类型是 `feat`（新功能），内容却是 bug 修复——**自相矛盾**。
+
+review 的人看了会怀疑这哥们靠不靠谱。
+
+**正解**：类型和内容必须匹配。bug 修复用 `fix`。
+
+### 坑 3：rebase 后不知道该怎么办
+
+我第一次 rebase 冲突后，**疯狂谷歌，乱试了 `git rebase --skip`**——结果丢了一个 commit。
+
+**正解**：
+
+1. 看到冲突 → 打开文件 → 手动解决
+2. `git add 冲突文件`
+3. `git rebase --continue`
+4. 任何时候想放弃 → `git rebase --abort`
+
+`--skip` **永远不要用**（除非你非常清楚自己在干嘛）。
+
+### 坑 4：把敏感信息 commit 上去了
+
+我第一次协作时，**直接把数据库密码写进了 application.yml**：
+
+```yaml
+spring:
+  datasource:
+    password: prod_MySQL_p@ssw0rd  # 直接 commit 了！
+```
+
+结果被传到 GitHub 公开仓库（虽然是学校的），老师提醒才删。
+
+**正解**：
+
+1. 用 `application-dev.yml` / `application-prod.yml` 区分环境
+2. 敏感信息放环境变量或外部配置中心
+3. `.gitignore` 加上 `application-local.yml`
+
+### 坑 5：合并后忘了删分支
+
+develop 上有一堆 `feature/*` 分支残留，时间长了根本看不清哪个分支是干嘛的。
+
+**正解**：合并完在 GitHub/GitLab 上点 "Delete branch"。
+
+## 后来我们组加的 4 条新规矩
+
+经过 2 周磨合，我们又加了 4 条：
+
+### 1. 禁止把 `main`/`develop` 直接 push
+
+设置 GitHub/GitLab 的 branch protection：
+- `main`：必须 PR + 2 人 review
+- `develop`：必须 PR + 1 人 review
+- 直接 push 会被服务器拒绝
+
+### 2. CI 跑通才能合并
+
+接了 GitHub Actions，每次 PR 触发：
+
+```yaml
+name: CI
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+      - run: mvn test
+```
+
+CI 失败就不能 merge。
+
+### 3. 用 draft PR 表示"还在做"
+
+PR 标题前加 `[WIP]` 或点 "Draft"——告诉 reviewer 还没做完，别 review。
+
+### 4. 紧急修复走 hotfix 分支
+
+发现线上 bug 不能等：
+
+```bash
+git checkout main
+git checkout -b hotfix/login-error
+# 修 bug
+git checkout main
+git merge --no-ff hotfix/login-error
+git checkout develop
+git merge --no-ff hotfix/login-error  # 同时合并回 develop
+```
+
+修完立即合并到 main **和** develop，**避免 develop 上的代码忘了同步这个修复**。
+
+## Git 图形化工具推荐
+
+命令记不住可以用 GUI：
+
+- **IDEA 自带 Git 工具**（右下角 Git 标签页）—— 够用
+- **Sourcetree** —— 跨平台，图形化 rebase 特别直观
+- **GitKraken** —— 好看，但付费
+- **lazygit**（命令行）—— 装在 WSL 里，`lazygit` 一键进 UI，敲键盘就能操作
+
+我个人用 **IDEA 自带 + lazygit** 组合，覆盖 90% 场景。
+
+## 下一步
+
+下一篇准备写 **多线程买票的完整实验**——下学期 JUC 课程要交作业，用 `synchronized` / `ReentrantLock` / `AtomicInteger` 三种方式实现 100 张票 10 个线程抢，记录每种方案的代码、结果、思考过程。

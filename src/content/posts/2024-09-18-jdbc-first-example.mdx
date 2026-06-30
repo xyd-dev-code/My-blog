@@ -1,0 +1,449 @@
+---
+title: "JDBC 第一个完整例子 — 从建表到查询的纯 Java 操作全过程"
+description: "老师让我们用纯 JDBC 写一个用户查询功能，不用 MyBatis 不用 JPA。逼着我搞懂'框架到底帮我干了什么'。从建表、加载驱动、写 SQL、处理结果一行行来。"
+pubDate: 2024-09-18
+tags: ["JDBC", "数据库", "笔记", "Java"]
+---
+
+## 起因
+
+之前学 SpringBoot + MyBatis-Plus，写查询就是 `userMapper.selectById(1)` 一行。
+
+老师问："你知道这一行背后发生了什么吗？"
+
+我说不知道。
+
+> "那就别用框架。用纯 JDBC 写一遍，**搞懂你之前省略了什么**。"
+
+布置作业：
+
+> "用纯 JDBC 实现用户列表查询、控制台输出。不准用任何 ORM 框架。"
+
+这篇是完整的"硬刚 JDBC"过程。
+
+## 第一步：准备数据库
+
+新建一个 `jdbc_demo` 数据库和 `t_user` 表：
+
+```sql
+CREATE DATABASE jdbc_demo DEFAULT CHARACTER SET utf8mb4;
+USE jdbc_demo;
+
+CREATE TABLE t_user (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(100) NOT NULL,
+    email VARCHAR(100),
+    age INT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO t_user (username, password, email, age) VALUES
+('alice', 'pass123', 'alice@example.com', 25),
+('bob', 'pass456', 'bob@example.com', 30),
+('charlie', 'pass789', 'charlie@example.com', 28);
+```
+
+## 第二步：Maven 项目加驱动
+
+`pom.xml`：
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>com.mysql</groupId>
+        <artifactId>mysql-connector-j</artifactId>
+        <version>8.0.33</version>
+    </dependency>
+</dependencies>
+```
+
+`mysql-connector-j` 是 MySQL 官方 JDBC 驱动，**没有它，Java 连不上 MySQL**。
+
+## 第三步：完整代码
+
+`src/main/java/com/example/JdbcDemo.java`：
+
+```java
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+
+public class JdbcDemo {
+
+    // 数据库连接信息
+    private static final String URL = 
+        "jdbc:mysql://localhost:3306/jdbc_demo?useSSL=false&serverTimezone=Asia/Shanghai";
+    private static final String USERNAME = "root";
+    private static final String PASSWORD = "yourpassword";
+
+    public static void main(String[] args) {
+        Connection conn = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            // 1. 加载驱动（新版可省略）
+            Class.forName("com.mysql.cj.jdbc.Driver");
+
+            // 2. 建立连接
+            conn = DriverManager.getConnection(URL, USERNAME, PASSWORD);
+            System.out.println("连接成功：" + conn);
+
+            // 3. 写 SQL
+            String sql = "SELECT id, username, password, email, age, created_at FROM t_user WHERE age > ?";
+
+            // 4. 创建 PreparedStatement
+            ps = conn.prepareStatement(sql);
+            ps.setInt(1, 20);  // 第一个 ? 设为 20
+
+            // 5. 执行查询
+            rs = ps.executeQuery();
+
+            // 6. 处理结果
+            List<User> users = new ArrayList<>();
+            while (rs.next()) {
+                User user = new User();
+                user.setId(rs.getLong("id"));
+                user.setUsername(rs.getString("username"));
+                user.setPassword(rs.getString("password"));
+                user.setEmail(rs.getString("email"));
+                user.setAge(rs.getInt("age"));
+                user.setCreatedAt(rs.getTimestamp("created_at"));
+                users.add(user);
+            }
+
+            // 7. 打印结果
+            System.out.println("查询到 " + users.size() + " 个用户：");
+            for (User u : users) {
+                System.out.println(u);
+            }
+
+        } catch (ClassNotFoundException e) {
+            System.out.println("驱动加载失败：" + e.getMessage());
+        } catch (SQLException e) {
+            System.out.println("数据库错误：" + e.getMessage());
+        } finally {
+            // 8. 关闭资源（**很重要**）
+            try {
+                if (rs != null) rs.close();
+                if (ps != null) ps.close();
+                if (conn != null) conn.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
+```
+
+`User.java`：
+
+```java
+import java.sql.Timestamp;
+
+public class User {
+    private Long id;
+    private String username;
+    private String password;
+    private String email;
+    private Integer age;
+    private Timestamp createdAt;
+
+    @Override
+    public String toString() {
+        return "User{id=" + id + ", username='" + username + "', email='" + email 
+               + "', age=" + age + ", createdAt=" + createdAt + "}";
+    }
+
+    // getter/setter 省略
+}
+```
+
+## 运行结果
+
+控制台输出：
+
+```
+连接成功：com.mysql.cj.jdbc.ConnectionImpl@12345
+查询到 3 个用户：
+User{id=1, username='alice', email='alice@example.com', age=25, createdAt=2024-09-18 10:23:15.0}
+User{id=2, username='bob', email='bob@example.com', age=30, createdAt=2024-09-18 10:23:15.0}
+User{id=3, username='charlie', email='charlie@example.com', age=28, createdAt=2024-09-18 10:23:15.0}
+```
+
+跑通了。
+
+## 我当时踩的 3 个坑
+
+### 坑 1：时区问题
+
+第一次跑报错：
+
+```
+The server time zone value 'ÖÐ¹ú±ê×¼Ê±¼ä' is unrecognized
+```
+
+**原因**：MySQL 8 默认时区不是 `Asia/Shanghai`，Java 不认识。
+
+**正解**：JDBC URL 加 `serverTimezone=Asia/Shanghai`：
+
+```
+jdbc:mysql://localhost:3306/jdbc_demo?serverTimezone=Asia/Shanghai
+```
+
+或者在 MySQL 里全局改：
+
+```sql
+SET GLOBAL time_zone = '+8:00';
+```
+
+### 坑 2：SSL 警告
+
+新版本 MySQL 驱动默认要求 SSL 连接：
+
+```
+WARN: Establishing SSL connection without server's identity verification is not recommended.
+```
+
+加 `useSSL=false` 关掉（开发环境）：
+
+```
+jdbc:mysql://localhost:3306/jdbc_demo?useSSL=false&serverTimezone=Asia/Shanghai
+```
+
+生产环境应该用 `useSSL=true` + `requireSSL=true`。
+
+### 坑 3：忘了关连接
+
+我第一版代码**没写 finally 块**——只 try 没 close。
+
+跑一次正常，但多次跑后报错：
+
+```
+Too many connections
+```
+
+**连接没释放，连接池满了**。
+
+后来养成铁律：**JDBC 资源必须在 finally 块里 close**，而且按 `rs → ps → conn` 顺序关（反着创建顺序）。
+
+## 一行行解读这段代码
+
+回头看，`userMapper.selectById(1)` 这一行框架帮我干了 9 件事：
+
+```
+1. Class.forName("com.mysql.cj.jdbc.Driver")           ← 加载驱动
+2. conn = DriverManager.getConnection(URL, USER, PWD)   ← 建立连接
+3. ps = conn.prepareStatement(sql)                       ← 预编译 SQL
+4. ps.setXxx(1, value)                                  ← 设置参数
+5. rs = ps.executeQuery()                               ← 执行
+6. while (rs.next()) { ... }                            ← 遍历结果集
+7. user.setXxx(rs.getXxx("col"))                        ← 字段映射
+8. users.add(user)                                      ← 拼装对象
+9. close rs, ps, conn                                   ← 关资源
+```
+
+**MyBatis-Plus 帮我隐藏了 1-5 和 9，只让我写 6-8**。
+
+## 几个必记的核心对象
+
+### 1. `Connection`（连接）
+
+代表一个数据库连接。**贵重资源**，用完必须关。
+
+### 2. `PreparedStatement`（预编译 SQL）
+
+比 `Statement` 强在：
+
+```java
+// 不推荐：SQL 拼接，**有 SQL 注入风险**
+String sql = "SELECT * FROM t_user WHERE username = '" + username + "'";
+Statement stmt = conn.createStatement();
+ResultSet rs = stmt.executeQuery(sql);
+
+// 推荐：参数化查询，**安全**
+String sql = "SELECT * FROM t_user WHERE username = ?";
+PreparedStatement ps = conn.prepareStatement(sql);
+ps.setString(1, username);  // 自动转义
+ResultSet rs = ps.executeQuery();
+```
+
+**铁律**：永远用 `PreparedStatement`，**永远不要拼接 SQL**。
+
+### 3. `ResultSet`（结果集）
+
+查询结果。`rs.next()` 移动光标，`rs.getXxx("列名")` 取值。
+
+注意：
+
+- 光标初始在第一行**之前**，第一次 `next()` 才到第一行
+- 取完所有数据后，`next()` 返回 false
+- **关连接时 ResultSet 也会自动关**
+
+## 完整的 CRUD 例子
+
+老师让把"增删改查"全写一遍：
+
+```java
+public class JdbcCrud {
+
+    private static final String URL = "jdbc:mysql://localhost:3306/jdbc_demo?serverTimezone=Asia/Shanghai";
+    private static final String USER = "root";
+    private static final String PWD = "yourpassword";
+
+    // C - Create
+    public void insert(String username, String email, int age) throws SQLException {
+        String sql = "INSERT INTO t_user (username, password, email, age) VALUES (?, ?, ?, ?)";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PWD);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, username);
+            ps.setString(2, "default_pwd");
+            ps.setString(3, email);
+            ps.setInt(4, age);
+            int rows = ps.executeUpdate();
+            System.out.println("插入 " + rows + " 行");
+        }
+    }
+
+    // R - Read
+    public List<User> selectByAge(int minAge) throws SQLException {
+        String sql = "SELECT * FROM t_user WHERE age > ?";
+        List<User> users = new ArrayList<>();
+        try (Connection conn = DriverManager.getConnection(URL, USER, PWD);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, minAge);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    User u = new User();
+                    u.setId(rs.getLong("id"));
+                    u.setUsername(rs.getString("username"));
+                    u.setEmail(rs.getString("email"));
+                    u.setAge(rs.getInt("age"));
+                    users.add(u);
+                }
+            }
+        }
+        return users;
+    }
+
+    // U - Update
+    public void updateEmail(Long id, String newEmail) throws SQLException {
+        String sql = "UPDATE t_user SET email = ? WHERE id = ?";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PWD);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, newEmail);
+            ps.setLong(2, id);
+            int rows = ps.executeUpdate();
+            System.out.println("更新 " + rows + " 行");
+        }
+    }
+
+    // D - Delete
+    public void delete(Long id) throws SQLException {
+        String sql = "DELETE FROM t_user WHERE id = ?";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PWD);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            int rows = ps.executeUpdate();
+            System.out.println("删除 " + rows + " 行");
+        }
+    }
+}
+```
+
+### try-with-resources 语法糖
+
+注意我用的是 `try (...)` 而不是 `try { } finally { close() }`：
+
+```java
+// 老写法：手动 close
+Connection conn = null;
+try {
+    conn = DriverManager.getConnection(...);
+    // ...
+} finally {
+    if (conn != null) conn.close();
+}
+
+// 新写法：自动 close（Java 7+）
+try (Connection conn = DriverManager.getConnection(...)) {
+    // ...
+}
+// conn 自动关闭，不用 finally
+```
+
+**`Connection` `PreparedStatement` `ResultSet` 都实现了 `AutoCloseable` 接口**，所以能用 try-with-resources。
+
+代码从 30 行缩到 10 行。
+
+## 我做完这个作业的几个心得
+
+### 1. 框架不是黑魔法
+
+我之前以为 MyBatis "很神奇"，能自动查数据库。  
+现在知道它就是：
+
+1. 帮我加载驱动
+2. 帮我管理连接
+3. 帮我把 SQL 拼好
+4. 帮我把 ResultSet 转成对象
+5. 帮我关资源
+
+**全是模板代码**，框架帮我自动化了。
+
+### 2. JDBC 模板代码太多
+
+每个方法都要：
+
+```java
+Connection conn = DriverManager.getConnection(...);
+PreparedStatement ps = conn.prepareStatement(sql);
+try { ... } finally { close(conn, ps, rs); }
+```
+
+一个项目 100 个查询，**重复 100 次**。  
+这就是 ORM 框架存在的意义——**消除模板代码**。
+
+### 3. SQL 注入是真实威胁
+
+```java
+String username = "' OR '1'='1";
+String sql = "SELECT * FROM t_user WHERE username = '" + username + "'";
+// 最终 SQL: SELECT * FROM t_user WHERE username = '' OR '1'='1'
+// 返回所有用户！
+```
+
+**永远用 `PreparedStatement`**，**永远不要拼接 SQL**。
+
+### 4. 连接是贵重资源
+
+每开一个连接要花几十毫秒，数据库有最大连接数限制。
+
+不关连接 → 内存泄漏 + 连接池打爆。  
+**必须关，必须在 finally 里关**。
+
+### 5. ResultSet 字段类型要对应
+
+| SQL 类型 | Java 类型 |
+|----------|-----------|
+| INT | `getInt()` |
+| BIGINT | `getLong()` |
+| VARCHAR | `getString()` |
+| DATETIME | `getTimestamp()` |
+| DECIMAL | `getBigDecimal()` |
+
+类型不对会抛 `SQLException`。
+
+## 我跑完这个作业的"恍然大悟"
+
+1. **之前学的 MyBatis-Plus 真香**——5 行代码搞定查询，对比 JDBC 的 30 行
+2. **连接池是真东西**——每次 `getConnection()` 都建立 TCP 连接太慢，要复用连接
+3. **SQL 注入必须防**——`PreparedStatement` 是底线
+4. **资源管理是基本功**——忘记 close 就是 bug
+
+写完 JDBC，我突然能看懂 MyBatis 的源码了——它就是在帮我做这些事。
+
+## 下一步
+
+下一篇准备写 **MyBatis 第一个查询**——从纯 JDBC 跳到 MyBatis，看 XML 怎么帮我隐藏那些模板代码，以及 `#{}` 和 `${}` 的区别。

@@ -1,0 +1,297 @@
+---
+title: "第一次装 Redis 跑 Hello World — Windows 下的踩坑全过程"
+description: "从下载、安装、跑通 ping，到踩了 3 个常见坑（端口占用、密码忘了、客户端连不上）的全过程记录。没有高大上的概念，就是一个新手把 Redis 装上跑起来的过程。"
+pubDate: 2024-12-21
+tags: ["Redis", "入门", "笔记", "踩坑"]
+---
+
+## 起因
+
+老师下节课要讲 Redis，让我提前装上玩玩。
+
+之前听说过无数次这个名字，但**连装都没装过**。今天花了 2 小时才把第一个 `redis-cli ping` 跑通，记录一下过程，给和我一样的小白一个参考。
+
+## 第一步：下载
+
+官网 https://redis.io/download/ —— 进去一看，傻了：
+
+> "Redis is not officially supported on Windows. We recommend using [WSL]..."
+
+意思是**官方不提供 Windows 版**。
+
+但我还是想在 Windows 上搞（不想折腾 WSL）。搜了一下，发现微软自己维护过一个 Windows 移植版：
+
+- GitHub: https://github.com/microsoftarchive/redis
+- 但是！**这个仓库已经被 archive 了**，最后一次更新是 2016 年
+
+继续搜，找到一个还在维护的分支：**Memurai**（商业版）和 **redis-windows**（社区版）。
+
+最后我用了**另一种方案**——直接装 WSL2，反正 Win11 自带。
+
+```powershell
+# PowerShell 管理员模式
+wsl --install
+# 重启后自动装好 Ubuntu
+```
+
+重启后打开 Ubuntu 终端：
+
+```bash
+sudo apt update
+sudo apt install redis-server
+```
+
+装完了。`redis-server --version` 看到 `7.0.15`，成了。
+
+## 第二步：启动
+
+直接敲 `redis-server`：
+
+```
+[Server] th 21 14:23:01.123 * Ready to accept connections tcp
+```
+
+光标停在那不动了，看着像卡死。其实**这是正常的**——Redis 在前台运行，正在监听 6379 端口。
+
+按 `Ctrl+C` 关掉，改成后台运行：
+
+```bash
+redis-server --daemonize yes
+# 或者用配置文件
+redis-server /etc/redis/redis.conf
+```
+
+验证一下：
+
+```bash
+redis-cli ping
+# 输出：PONG  ← 成功了
+```
+
+我当时看到 `PONG` 那一下，**比想象中激动**——这玩意居然真跑起来了。
+
+## 第一个坑：端口被占用
+
+我想把 Redis 跑在 6380 而不是默认 6379，结果报错：
+
+```
+Could not create server TCP listening socket 127.0.0.1:6380: bind: Address already in use
+```
+
+查了下：
+
+```bash
+sudo lsof -i :6380
+# 或者
+sudo netstat -tlnp | grep 6380
+```
+
+发现之前测试装过 memurai 占用了 6380。**杀掉那个进程**就好了：
+
+```bash
+sudo kill -9 <PID>
+```
+
+## 第三个坑：密码忘了
+
+我想给 Redis 设个密码，结果一通乱搞忘了原本的密码是多少。
+
+去配置文件改：
+
+```bash
+sudo vim /etc/redis/redis.conf
+# 找到 requirepass 那一行
+# requirepass yourpassword
+# 去掉注释，改成自己的密码
+requirepass mySecret123
+```
+
+重启 Redis：
+
+```bash
+sudo systemctl restart redis-server
+```
+
+但又报错了：
+
+```
+NOAUTH Authentication required.
+```
+
+这是因为我刚才连接时没输密码。重新连：
+
+```bash
+redis-cli -a mySecret123
+# Warning: Using a password with '-a' option on the command line interface may be insecure.
+127.0.0.1:6379>
+```
+
+**警告**是告诉你命令行传密码会被 `history` 记录，不安全。生产环境别这么搞。
+
+## 第二步：动手玩一下
+
+连上之后随便玩：
+
+```bash
+# 设置键值
+127.0.0.1:6379> SET name "Ouyang"
+OK
+127.0.0.1:6379> GET name
+"Ouyang"
+
+# 自增计数器
+127.0.0.1:6379> INCR visit_count
+(integer) 1
+127.0.0.1:6379> INCR visit_count
+(integer) 2
+
+# 设置过期时间（10 秒后自动消失）
+127.0.0.1:6379> SET code "8888" EX 10
+OK
+127.0.0.1:6379> TTL code
+(integer) 10
+127.0.0.1:6379> GET code
+"8888"
+# 等 10 秒后再 GET
+127.0.0.1:6379> GET code
+(nil)
+```
+
+当时玩 INCR 玩了好几分钟，**感觉这种"立即反馈"的小命令特别上瘾**，比 Java 写一堆代码才能看到效果舒服多了。
+
+## 第四个坑：图形化客户端连不上
+
+我想用图形化工具看数据（`redis-cli` 看着累），装了 **Another Redis Desktop Manager**。
+
+填连接信息：
+
+- Host: `127.0.0.1`
+- Port: `6379`
+- Password: `mySecret123`
+
+连不上，报错：
+
+```
+Connection refused: connect
+```
+
+我反复检查密码对不对……其实问题不在密码。
+
+**真正的原因**：Redis 默认只监听 `127.0.0.1`（本地），而我 WSL 里的 Redis 和 Windows 主机**不在同一个网络**。
+
+修配置文件：
+
+```bash
+sudo vim /etc/redis/redis.conf
+
+# 注释掉这行
+# bind 127.0.0.1
+
+# 或者改成
+bind 0.0.0.0
+
+# 关闭保护模式（开发环境）
+protected-mode no
+```
+
+重启 Redis，从 Windows 的 Another Redis Desktop Manager 连 `localhost:6379`，密码 `mySecret123`，**终于连上了**。
+
+> **安全提醒**：`bind 0.0.0.0` + `protected-mode no` 等于把 Redis 暴露给整个局域网。**生产环境千万别这么配**，要改成 `bind 127.0.0.1` 或者用防火墙限制。
+
+## 用 Java 客户端连一下
+
+光 `redis-cli` 玩不够，想试试 Java 怎么用。新建 Maven 项目，加依赖：
+
+```xml
+<dependency>
+    <groupId>redis.clients</groupId>
+    <artifactId>jedis</artifactId>
+    <version>5.1.2</version>
+</dependency>
+```
+
+写个 Hello World：
+
+```java
+public class RedisHello {
+    public static void main(String[] args) {
+        Jedis jedis = new Jedis("localhost", 6379);
+        jedis.auth("mySecret123");
+        
+        jedis.set("java_key", "Hello from Java");
+        String value = jedis.get("java_key");
+        System.out.println(value);  // Hello from Java
+        
+        jedis.close();
+    }
+}
+```
+
+第一次跑通了，**感觉有点神奇**——Java 代码居然能操作一个完全独立的数据库。
+
+后来才知道这只是最原始的方式，SpringBoot 里有 `StringRedisTemplate` 封装得更好用。但当时先把"能连上"这件事跑通，心里踏实了。
+
+## 一个让我琢磨了很久的小问题
+
+我玩 INCR 的时候突然想：
+
+> "Redis 是单线程还是多线程？如果是单线程，并发 INCR 同一个 key 会不会出问题？"
+
+当时不知道答案，瞎测了一下：
+
+```bash
+# 开了 3 个终端同时跑
+for i in {1..100}; do redis-cli INCR test_counter & done
+```
+
+最终 `GET test_counter` 返回 **300**。
+
+`&` 是 bash 后台执行，100 个并发请求。**结果是精确的 300**，没有重复计数。
+
+我当时想：单线程怎么会这么快？但**单线程 + 内存**就是快，Redis 把所有命令串行执行，**原子性天然保证**。
+
+这个特性后来面试被问到，"Redis 为什么快？"，我能讲得很具体——**不是背的，是真的玩过**。
+
+## 几个用过的命令（记下来怕忘）
+
+```bash
+# 连接类
+redis-cli -h host -p port -a password
+redis-cli ping  # 测试连接
+
+# 字符串类
+SET key value [EX seconds]
+GET key
+DEL key
+EXISTS key
+INCR key
+EXPIRE key seconds
+TTL key  # 看剩余过期时间
+
+# 哈希类
+HSET user:1 name "Alice" age 25
+HGET user:1 name
+HGETALL user:1
+
+# 列表类
+LPUSH news "title1"
+LRANGE news 0 -1  # 取所有
+
+# 查看所有 key
+KEYS *
+# ⚠️ 生产环境别用 KEYS，会卡死！
+# 用 SCAN 代替
+SCAN 0 MATCH user:* COUNT 100
+```
+
+## 装完之后的小心得
+
+1. **别在 Windows 原生装 Redis**——直接 WSL2，省一堆麻烦
+2. **第一次跑通最重要**——别上来就看理论，先 `SET` `GET` 玩起来
+3. **密码、端口、bind**这三件事配置不好就出问题，每个都亲自踩一遍
+4. **图形化客户端**用 Another Redis Desktop Manager（免费）或 RedisInsight（官方）
+5. **Java 客户端**先学 Jedis（最简单），再学 Lettuce（异步、性能好）
+
+## 下一步
+
+下一篇准备写 **Maven 多模块**——之前一直把所有代码塞一个 module，老师说项目大了这样不行。我打算把现在的 demo 项目拆成 `common / service / web` 三层试试。

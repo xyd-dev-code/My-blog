@@ -1,0 +1,461 @@
+---
+title: "电脑商城 Day 4-5 — 购物车模块，Redis Hash 存的完整实现"
+description: "购物车怎么用 Redis 存？购物车数据怎么设计、增减商品怎么实现、勾选状态怎么保存、登录态怎么关联。含完整代码 + 3 个具体踩坑（Hash 序列化、并发加减、超量加车）。"
+pubDate: 2025-07-08
+tags: ["电脑商城", "购物车", "Redis", "SpringBoot"]
+---
+
+## 起因
+
+电脑商城 Day 4-5，做购物车模块。
+
+之前学的 Redis 知识派上用场了——购物车是个典型的"高频读、低频写"场景，**用 Redis 比 MySQL 快很多**。
+
+这篇把"购物车从 0 到能下单"的完整实现过程记下来。
+
+## 第一步：购物车数据怎么存
+
+### 方案对比
+
+| 方案 | 数据结构 | 优点 | 缺点 |
+|------|----------|------|------|
+| MySQL 表 | 关系型 | 持久化好、事务 | 慢、高频读压力大 |
+| Redis String + JSON | 简单 | 直观 | 修改一个字段要全改 |
+| **Redis Hash** | 字段级别 | 单字段改、内存省 | 稍复杂 |
+| Redis ZSet | 有序 | 按时间排序 | 改数量要重排 |
+
+**我选 Redis Hash**——一个用户一个 Hash，field 是商品 ID，value 是数量 + 勾选状态。
+
+### Key 设计
+
+```
+cart:{userId} = {
+    "1": "{\"quantity\": 2, \"selected\": true}",
+    "3": "{\"quantity\": 1, \"selected\": false}"
+}
+```
+
+```java
+public class CartItem {
+    private Long productId;
+    private Integer quantity;
+    private Boolean selected;
+}
+```
+
+## 第二步：购物车 Service
+
+```java
+@Service
+public class CartServiceImpl implements CartService {
+
+    @Autowired
+    private StringRedisTemplate redis;
+
+    @Autowired
+    private ProductMapper productMapper;
+
+    private String key(Long userId) {
+        return "cart:" + userId;
+    }
+
+    @Override
+    public void addToCart(Long userId, Long productId, Integer quantity) {
+        // 1. 商品是否存在
+        Product product = productMapper.selectById(productId);
+        if (product == null || product.getStatus() != 1) {
+            throw new BusinessException(400, "商品不存在或已下架");
+        }
+
+        // 2. 库存校验
+        if (product.getStock() < quantity) {
+            throw new BusinessException(400, "库存不足");
+        }
+
+        // 3. Redis Hash 操作
+        String key = key(userId);
+        String itemJson = (String) redis.opsForHash().get(key, String.valueOf(productId));
+
+        if (itemJson == null) {
+            // 新增
+            CartItem item = new CartItem(productId, quantity, true);
+            redis.opsForHash().put(key, String.valueOf(productId), JSON.toJSONString(item));
+        } else {
+            // 累加
+            CartItem item = JSON.parseObject(itemJson, CartItem.class);
+            item.setQuantity(item.getQuantity() + quantity);
+            // 再次校验库存
+            if (item.getQuantity() > product.getStock()) {
+                throw new BusinessException(400, "超过库存上限");
+            }
+            redis.opsForHash().put(key, String.valueOf(productId), JSON.toJSONString(item));
+        }
+
+        // 4. 设置过期时间（30 天不活跃就清掉）
+        redis.expire(key, 30, TimeUnit.DAYS);
+    }
+
+    @Override
+    public List<CartItemVO> listCart(Long userId) {
+        String key = key(userId);
+        Map<Object, Object> entries = redis.opsForHash().entries(key);
+        if (entries.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<CartItemVO> result = new ArrayList<>();
+        for (Map.Entry<Object, Object> entry : entries.entrySet()) {
+            CartItem item = JSON.parseObject(entry.getValue().toString(), CartItem.class);
+            Product product = productMapper.selectById(item.getProductId());
+            if (product == null) continue;  // 商品已删除，跳过
+            
+            CartItemVO vo = new CartItemVO();
+            vo.setProductId(product.getId());
+            vo.setProductName(product.getName());
+            vo.setProductImage(product.getCoverImage());
+            vo.setPrice(product.getPrice());
+            vo.setQuantity(item.getQuantity());
+            vo.setSelected(item.getSelected());
+            vo.setStock(product.getStock());
+            result.add(vo);
+        }
+        return result;
+    }
+
+    @Override
+    public void updateQuantity(Long userId, Long productId, Integer quantity) {
+        if (quantity <= 0) {
+            removeFromCart(userId, productId);
+            return;
+        }
+
+        String key = key(userId);
+        String itemJson = (String) redis.opsForHash().get(key, String.valueOf(productId));
+        if (itemJson == null) {
+            throw new BusinessException(400, "购物车无此商品");
+        }
+
+        Product product = productMapper.selectById(productId);
+        if (product.getStock() < quantity) {
+            throw new BusinessException(400, "库存不足");
+        }
+
+        CartItem item = JSON.parseObject(itemJson, CartItem.class);
+        item.setQuantity(quantity);
+        redis.opsForHash().put(key, String.valueOf(productId), JSON.toJSONString(item));
+    }
+
+    @Override
+    public void toggleSelected(Long userId, Long productId, Boolean selected) {
+        String key = key(userId);
+        String itemJson = (String) redis.opsForHash().get(key, String.valueOf(productId));
+        if (itemJson == null) {
+            throw new BusinessException(400, "购物车无此商品");
+        }
+
+        CartItem item = JSON.parseObject(itemJson, CartItem.class);
+        item.setSelected(selected);
+        redis.opsForHash().put(key, String.valueOf(productId), JSON.toJSONString(item));
+    }
+
+    @Override
+    public void removeFromCart(Long userId, Long productId) {
+        redis.opsForHash().delete(key(userId), String.valueOf(productId));
+    }
+
+    @Override
+    public void clearCart(Long userId) {
+        redis.delete(key(userId));
+    }
+}
+```
+
+## 第三个坑：Hash 序列化问题
+
+跑起来报：
+
+```
+SerializationException: Could not deserialize
+```
+
+**原因**：Redis Hash 默认用 `JdkSerializationRedisSerializer`，**对象要实现 `Serializable`**。
+
+但我存的是 JSON 字符串，不是 Java 对象。
+
+**正解**：用 `StringRedisTemplate`（已经处理好了），或者配置 `RedisTemplate` 用 `Jackson2JsonRedisSerializer`。
+
+我直接用 `StringRedisTemplate`，存进去的是 `String`：
+
+```java
+@Autowired
+private StringRedisTemplate redis;
+
+redis.opsForHash().put(key, productId.toString(), JSON.toJSONString(item));
+```
+
+`StringRedisTemplate` 默认 key/value 都是 StringSerializer，**不会出错**。
+
+## Controller
+
+```java
+@RestController
+@RequestMapping("/api/cart")
+@Tag(name = "购物车")
+public class CartController {
+
+    @Autowired
+    private CartService cartService;
+
+    @PostMapping
+    @Operation(summary = "加入购物车")
+    public Result<Void> add(@RequestBody AddCartRequest req) {
+        Long userId = UserContext.getCurrentUserId();
+        cartService.addToCart(userId, req.getProductId(), req.getQuantity());
+        return Result.ok();
+    }
+
+    @GetMapping
+    @Operation(summary = "购物车列表")
+    public Result<List<CartItemVO>> list() {
+        Long userId = UserContext.getCurrentUserId();
+        return Result.ok(cartService.listCart(userId));
+    }
+
+    @PutMapping("/{productId}")
+    @Operation(summary = "修改数量")
+    public Result<Void> updateQuantity(@PathVariable Long productId, 
+                                       @RequestParam Integer quantity) {
+        Long userId = UserContext.getCurrentUserId();
+        cartService.updateQuantity(userId, productId, quantity);
+        return Result.ok();
+    }
+
+    @PutMapping("/{productId}/selected")
+    @Operation(summary = "切换勾选状态")
+    public Result<Void> toggleSelected(@PathVariable Long productId, 
+                                       @RequestParam Boolean selected) {
+        Long userId = UserContext.getCurrentUserId();
+        cartService.toggleSelected(userId, productId, selected);
+        return Result.ok();
+    }
+
+    @DeleteMapping("/{productId}")
+    @Operation(summary = "删除商品")
+    public Result<Void> remove(@PathVariable Long productId) {
+        Long userId = UserContext.getCurrentUserId();
+        cartService.removeFromCart(userId, productId);
+        return Result.ok();
+    }
+
+    @DeleteMapping
+    @Operation(summary = "清空购物车")
+    public Result<Void> clear() {
+        Long userId = UserContext.getCurrentUserId();
+        cartService.clearCart(userId);
+        return Result.ok();
+    }
+}
+```
+
+## 第二个坑：库存扣减并发
+
+加购物车时校验库存，但**两个用户同时加，最后库存为负**：
+
+```
+商品库存 = 1
+用户 A：add(1) -> 校验库存 1 >= 1 通过
+用户 B：add(1) -> 校验库存 1 >= 1 通过
+→ 库存变成 0 但实际卖了 2 件
+```
+
+**解决**：用乐观锁
+
+```sql
+UPDATE t_product 
+SET stock = stock - #{quantity},
+    sales = sales + #{quantity}
+WHERE id = #{productId} 
+  AND stock >= #{quantity}
+```
+
+`stock >= #{quantity}` 是个乐观锁——**如果库存不够就不更新**，返回受影响行数 0。
+
+但**加购物车其实不扣库存**，只在校验。真正扣库存在下单时。
+
+我用了另一个方法：**加分布式锁**：
+
+```java
+RLock lock = redisson.getLock("stock:" + productId);
+lock.lock();
+try {
+    Product p = productMapper.selectById(productId);
+    if (p.getStock() < quantity) {
+        throw new BusinessException(400, "库存不足");
+    }
+    // 加购物车
+} finally {
+    lock.unlock();
+}
+```
+
+但这个方法**性能差**——所有用户加同一个商品都抢锁。
+
+**最佳实践**：
+
+- **加购物车**：不锁，只校验当前库存（用户可能不买）
+- **下单扣库存**：用乐观锁 `WHERE stock >= ?`，**真失败再说**
+- **最终扣减**：用 Redis Lua 脚本保证原子
+
+## 第三个坑：登录用户 ID 丢失
+
+我加购物车要 `userId`，从 `UserContext.getCurrentUserId()` 取。
+
+但**用户登录前**也可以加购物车（临时购物车）——这种情况 userId 是空的。
+
+**方案 A**：必须登录才能加购物车（简单）
+
+**方案 B**：未登录用 cookie 存临时 ID，登录后合并（复杂）
+
+我选 A——**强制登录**。前端判断 `token` 不存在就跳登录页。
+
+```javascript
+if (!localStorage.getItem('token')) {
+    router.push('/login');
+    return;
+}
+```
+
+## 几个我用过的 Redis 命令
+
+```bash
+# 看某用户的购物车
+HGETALL cart:1
+
+# 看购物车里有多少商品
+HLEN cart:1
+
+# 加一个商品
+HSET cart:1 5 '{"quantity":2,"selected":true}'
+
+# 改数量
+HSET cart:1 5 '{"quantity":3,"selected":true}'
+
+# 删除一个商品
+HDEL cart:1 5
+
+# 清空购物车
+DEL cart:1
+
+# 看购物车里所有商品 ID
+HKEYS cart:1
+```
+
+## 几个优化
+
+### 1. 商品详情缓存
+
+购物车列表每次都要 `productMapper.selectById`，**N 次查询**。
+
+**优化**：用 Redis 缓存商品详情
+
+```java
+public Product getProduct(Long id) {
+    String key = "product:" + id;
+    String json = redis.opsForValue().get(key);
+    if (json != null) {
+        return JSON.parseObject(json, Product.class);
+    }
+    Product p = productMapper.selectById(id);
+    if (p != null) {
+        redis.opsForValue().set(key, JSON.toJSONString(p), 10, TimeUnit.MINUTES);
+    }
+    return p;
+}
+```
+
+**但有个问题**：商品改了价格，缓存还是旧价。
+
+**解决**：改商品时清缓存：
+
+```java
+@Override
+public void updateProduct(Product product) {
+    productMapper.updateById(product);
+    redis.delete("product:" + product.getId());
+}
+```
+
+### 2. 全选 / 反选
+
+```java
+public void selectAll(Long userId, Boolean selected) {
+    String key = key(userId);
+    Map<Object, Object> entries = redis.opsForHash().entries(key);
+    for (Map.Entry<Object, Object> entry : entries.entrySet()) {
+        CartItem item = JSON.parseObject(entry.getValue().toString(), CartItem.class);
+        item.setSelected(selected);
+        redis.opsForHash().put(key, entry.getKey().toString(), JSON.toJSONString(item));
+    }
+}
+```
+
+### 3. 统计选中商品的数量和价格
+
+下单前要算"总价"和"总件数"：
+
+```java
+public CartSummaryVO summary(Long userId) {
+    List<CartItemVO> items = listCart(userId);
+    CartSummaryVO summary = new CartSummaryVO();
+    summary.setTotalCount(0);
+    summary.setTotalAmount(BigDecimal.ZERO);
+
+    for (CartItemVO item : items) {
+        if (Boolean.TRUE.equals(item.getSelected())) {
+            summary.setTotalCount(summary.getTotalCount() + item.getQuantity());
+            summary.setTotalAmount(summary.getTotalAmount()
+                .add(item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()))));
+        }
+    }
+    return summary;
+}
+```
+
+## 我做完购物车的几个心得
+
+### 1. Redis Hash 适合"字段频繁修改"
+
+购物车的"数量""勾选状态"经常改，用 Hash 单字段改，**不用动其他字段**。
+
+### 2. 商品快照很重要
+
+**不要在订单里直接 JOIN 商品表**——商品名、价格要快照存到订单项里。  
+购物车只是临时数据，商品会改价、改名、下架。
+
+### 3. 校验要分层
+
+- **前端**：必填项、格式（输入数字）
+- **Controller**：必传参数
+- **Service**：业务规则（库存）
+- **数据库**：唯一索引、CHECK 约束
+
+**每一层都不能省**。
+
+### 4. 失败要明确
+
+库存不足、下架、参数错误、登录态过期——**每种失败要有明确的错误码和信息**，前端才好提示用户。
+
+### 5. 性能优化要"按需"
+
+不要上来就缓存——先跑起来，看慢在哪，再优化。
+
+我优化顺序：
+
+1. 先 MySQL 直查（功能正确）
+2. 加 Redis Hash 存购物车
+3. 加商品详情缓存
+4. **真正的瓶颈在哪再优化**
+
+## 下一步
+
+下一篇准备写 **电脑商城订单模块 — 事务控制踩坑实录**。下订单要扣库存、改购物车、生成订单，3 步必须原子。Spring `@Transactional` 用错了一行就翻车。

@@ -1,0 +1,595 @@
+---
+title: "电脑商城 Day 1 — 项目初始化、数据库设计、技术选型"
+description: "下学期项目正式启动。从零开始：Maven 多模块建项目、画 ER 图、写 7 张核心表的 DDL、配 Redis 和 Swagger。每个步骤具体怎么操作、当时卡在哪、怎么解决。"
+pubDate: 2025-06-10
+tags: ["电脑商城", "项目", "SpringBoot", "笔记"]
+---
+
+## 起因
+
+下学期项目正式启动：**电脑商城**——一个完整的电商系统，包含用户、商品、购物车、订单、支付、后台管理。
+
+老师说"先把项目骨架搭起来"。
+
+我之前做过的都是 demo 级别（一个 module 跑通），**完整项目的初始化就要踩一堆坑**。这篇记完整的 Day 1 过程。
+
+## 第一步：技术选型
+
+老师列了技术栈清单，让我选：
+
+| 层 | 选型 | 理由 |
+|----|------|------|
+| 后端框架 | SpringBoot 3.2 + JDK 17 | 主流 |
+| ORM | MyBatis-Plus 3.5 | 减少模板代码 |
+| 数据库 | MySQL 8.0 | 主流 |
+| 缓存 | Redis 7 | 购物车、热点数据 |
+| 鉴权 | JWT | 无状态 |
+| 密码加密 | BCrypt | Spring Security 默认 |
+| 接口文档 | Knife4j（Swagger） | 自动生成 API 文档 |
+| 构建 | Maven 多模块 | 项目大了要分层 |
+| 部署 | Docker + Nginx | 简单 |
+| 前端 | Vue 3 + Element Plus | 主流 |
+
+我之前只用过 SpringBoot + MyBatis-Plus + MySQL，**Redis、JWT、Knife4j 都没用过**——这些都得边学边做。
+
+## 第二步：Maven 多模块建项目
+
+按上学期学的，把项目拆成 5 个 module：
+
+```
+mall-parent/                ← 父 POM
+├── mall-common/            ← 通用工具（响应包装、异常）
+├── mall-domain/            ← 实体类、DTO
+├── mall-dao/               ← Mapper 接口
+├── mall-service/           ← 业务层
+└── mall-web/               ← 启动模块
+```
+
+### 父 POM 关键配置
+
+`mall-parent/pom.xml`：
+
+```xml
+<groupId>com.mall</groupId>
+<artifactId>mall-parent</artifactId>
+<version>1.0.0-SNAPSHOT</version>
+<packaging>pom</packaging>
+
+<modules>
+    <module>mall-common</module>
+    <module>mall-domain</module>
+    <module>mall-dao</module>
+    <module>mall-service</module>
+    <module>mall-web</module>
+</modules>
+
+<properties>
+    <java.version>17</java.version>
+    <spring-boot.version>3.2.5</spring-boot.version>
+    <mybatis-plus.version>3.5.7</mybatis-plus.version>
+</properties>
+
+<dependencyManagement>
+    <dependencies>
+        <!-- SpringBoot BOM -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-dependencies</artifactId>
+            <version>${spring-boot.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+        <!-- MyBatis-Plus BOM -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-bom</artifactId>
+            <version>${mybatis-plus.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+```
+
+### 第一个坑：循环依赖
+
+我建完模块，编译报：
+
+```
+The projects in the reactor contain a cyclic reference.
+```
+
+**原因**：`mall-dao` 引用了 `mall-service`（写错了依赖关系）。
+
+**正解**：
+
+- `mall-dao` 只依赖 `mall-domain`
+- `mall-service` 依赖 `mall-dao` + `mall-common`
+- `mall-web` 依赖 `mall-service`
+
+**单向依赖，下层不依赖上层**。
+
+## 第三步：数据库设计
+
+老师说"先画 ER 图，再写 DDL"。
+
+### ER 图
+
+我用 `draw.io` 画的（在线免费）：
+
+```
+用户 (t_user)
+├── id (PK)
+├── username (UNIQUE)
+├── password
+├── email
+├── phone
+├── avatar
+├── status (正常/封禁)
+└── created_at
+
+商品分类 (t_category)
+├── id (PK)
+├── name
+├── parent_id (自关联)
+├── sort_order
+└── icon
+
+商品 (t_product)
+├── id (PK)
+├── category_id (FK)
+├── name
+├── cover_image
+├── description
+├── price
+├── stock
+├── status (上架/下架)
+├── sales (销量)
+└── created_at
+
+商品图片 (t_product_image)
+├── id (PK)
+├── product_id (FK)
+└── image_url
+
+购物车 (t_cart)
+├── id (PK)
+├── user_id (FK)
+├── product_id (FK)
+├── quantity
+└── selected (勾选状态)
+
+订单 (t_order)
+├── id (PK)
+├── order_no (UNIQUE)
+├── user_id (FK)
+├── total_amount
+├── status (待支付/已支付/已发货/已完成/已取消)
+├── receiver_name
+├── receiver_phone
+├── receiver_address
+├── created_at
+└── paid_at
+
+订单项 (t_order_item)
+├── id (PK)
+├── order_id (FK)
+├── product_id (FK)
+├── product_name (快照)
+├── product_image (快照)
+├── price (快照)
+└── quantity
+```
+
+**关键设计**：
+
+1. **订单里的商品名/图片/价格是"快照"**——**不引用商品表**，因为商品会改价、改名，订单要保持下单时的状态
+2. **`order_no` 用唯一索引**——业务主键，方便查询
+3. **`status` 用 tinyint**——状态少，省空间
+4. **`created_at` 用 datetime**——带时间，方便按时间排序
+
+### 写 DDL
+
+```sql
+CREATE DATABASE mall DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE mall;
+
+-- 用户表
+CREATE TABLE t_user (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(100) NOT NULL COMMENT 'BCrypt 加密',
+    email VARCHAR(100),
+    phone VARCHAR(20),
+    avatar VARCHAR(255),
+    status TINYINT NOT NULL DEFAULT 1 COMMENT '1正常 0封禁',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
+
+-- 商品分类表（自关联）
+CREATE TABLE t_category (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(50) NOT NULL,
+    parent_id BIGINT DEFAULT 0,
+    sort_order INT DEFAULT 0,
+    icon VARCHAR(255),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_parent (parent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品分类表';
+
+-- 商品表
+CREATE TABLE t_product (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    category_id BIGINT NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    cover_image VARCHAR(255),
+    description TEXT,
+    price DECIMAL(10, 2) NOT NULL,
+    stock INT NOT NULL DEFAULT 0,
+    status TINYINT NOT NULL DEFAULT 1 COMMENT '1上架 0下架',
+    sales INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_category (category_id),
+    INDEX idx_status_sales (status, sales DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品表';
+
+-- 购物车表
+CREATE TABLE t_cart (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    quantity INT NOT NULL DEFAULT 1,
+    selected TINYINT NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_user_product (user_id, product_id),
+    INDEX idx_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='购物车表';
+
+-- 订单表
+CREATE TABLE t_order (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_no VARCHAR(50) NOT NULL UNIQUE,
+    user_id BIGINT NOT NULL,
+    total_amount DECIMAL(10, 2) NOT NULL,
+    status TINYINT NOT NULL DEFAULT 0 COMMENT '0待支付 1已支付 2已发货 3已完成 4已取消',
+    receiver_name VARCHAR(50),
+    receiver_phone VARCHAR(20),
+    receiver_address VARCHAR(255),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    paid_at DATETIME,
+    INDEX idx_user_status (user_id, status),
+    INDEX idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单表';
+
+-- 订单项表
+CREATE TABLE t_order_item (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    product_name VARCHAR(200) NOT NULL,
+    product_image VARCHAR(255),
+    price DECIMAL(10, 2) NOT NULL,
+    quantity INT NOT NULL,
+    INDEX idx_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单项表';
+```
+
+### 我当时的几个考虑
+
+**1. 为什么用 `t_` 前缀？**
+
+表多的时候，`t_user` `t_product` 排在一起看着清爽。
+
+**2. 为什么用 BIGINT 主键？**
+
+预估用户、商品几百万级，BIGINT 够用。UUID 字符串占空间且无序，**不用**。
+
+**3. 为什么订单用独立 `order_no`？**
+
+- 自增 ID 暴露业务量
+- `order_no` 可以编码时间（雪花算法），方便排序和反查
+
+**4. 软删除还是硬删除？**
+
+- 用户：软删除（`status = 0` 封禁）
+- 商品：软删除（下架）
+- 购物车/订单：**软删除**（用 `deleted` 字段，MyBatis-Plus 自动处理）
+
+## 第四步：建 SpringBoot 项目骨架
+
+`mall-web/pom.xml`：
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>com.mall</groupId>
+        <artifactId>mall-service</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.baomidou</groupId>
+        <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.mysql</groupId>
+        <artifactId>mysql-connector-j</artifactId>
+        <scope>runtime</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-api</artifactId>
+        <version>0.12.5</version>
+    </dependency>
+    <dependency>
+        <groupId>com.github.xiaoymin</groupId>
+        <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+        <version>4.5.0</version>
+    </dependency>
+</dependencies>
+```
+
+### `application.yml`：
+
+```yaml
+server:
+  port: 8080
+
+spring:
+  application:
+    name: mall-web
+  datasource:
+    url: jdbc:mysql://localhost:3306/mall?useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: yourpassword
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 
+      timeout: 2000ms
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 控制台打印 SQL
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+```
+
+## 第五步：通用响应包装
+
+`mall-common` 模块：
+
+```java
+@Data
+public class Result<T> {
+    private int code;
+    private String message;
+    private T data;
+
+    public static <T> Result<T> ok(T data) {
+        Result<T> r = new Result<>();
+        r.code = 200;
+        r.message = "ok";
+        r.data = data;
+        return r;
+    }
+
+    public static <T> Result<T> fail(int code, String message) {
+        Result<T> r = new Result<>();
+        r.code = code;
+        r.message = message;
+        return r;
+    }
+}
+```
+
+**所有接口都返回 `Result<T>`**——前端只从 `data` 字段取数据。
+
+## 第六步：第一个 Controller 跑通
+
+`mall-web` 模块：
+
+```java
+@RestController
+@RequestMapping("/api/health")
+public class HealthController {
+
+    @GetMapping
+    public Result<String> health() {
+        return Result.ok("服务正常");
+    }
+}
+```
+
+启动类：
+
+```java
+@SpringBootApplication
+@MapperScan("com.mall.dao.mapper")
+public class MallWebApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(MallWebApplication.class, args);
+    }
+}
+```
+
+跑起来：
+
+```bash
+mvn clean install -pl mall-web -am
+java -jar mall-web/target/mall-web-1.0.0.jar
+```
+
+访问 `http://localhost:8080/api/health`：
+
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": "服务正常"
+}
+```
+
+**项目骨架跑通了**。
+
+## 第七个坑：Knife4j 不显示
+
+我按文档加了 Knife4j 依赖，访问 `http://localhost:8080/doc.html` 404。
+
+**原因**：SpringBoot 3.x 用 Jakarta EE，Knife4j 需要用 `knife4j-openapi3-jakarta-spring-boot-starter`（不是老版本）。
+
+**正解**：
+
+```xml
+<dependency>
+    <groupId>com.github.xiaoymin</groupId>
+    <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+    <version>4.5.0</version>
+</dependency>
+```
+
+再访问 `http://localhost:8080/doc.html`：
+
+**看到 Knife4j 的界面了**——但里面啥也没有。
+
+**还要加配置**：
+
+```java
+@Configuration
+public class Knife4jConfig {
+
+    @Bean
+    public OpenAPI customOpenAPI() {
+        return new OpenAPI()
+            .info(new Info()
+                .title("电脑商城 API")
+                .description("SpringBoot 3 + MyBatis-Plus 实战")
+                .version("1.0"));
+    }
+}
+```
+
+每个 Controller 加 `@Tag` 和 `@Operation` 注解：
+
+```java
+@RestController
+@RequestMapping("/api/health")
+@Tag(name = "健康检查")
+public class HealthController {
+
+    @GetMapping
+    @Operation(summary = "健康检查")
+    public Result<String> health() {
+        return Result.ok("服务正常");
+    }
+}
+```
+
+刷新 `doc.html`，看到接口列表了。
+
+## 第八个坑：Redis 连不上
+
+启动报：
+
+```
+Unable to connect to Redis
+```
+
+**原因**：本机没装 Redis。
+
+**解决**：
+
+**方式 1**：装 WSL + Redis（最简单）
+
+```bash
+wsl
+sudo apt install redis-server
+sudo service redis-server start
+```
+
+**方式 2**：用 Docker 跑
+
+```bash
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
+
+我选了方式 1，30 秒搞定。
+
+## Day 1 结束时的成果
+
+✅ Maven 多模块建好（5 个 module，依赖关系正确）  
+✅ 数据库 7 张表设计好，DDL 跑通  
+✅ SpringBoot 项目能启动，health 接口通  
+✅ MyBatis-Plus 配置好（驼峰转换、SQL 日志、逻辑删除）  
+✅ Redis 连上  
+✅ Knife4j 接口文档能看到
+
+**还没做**：
+
+- 用户模块（注册、登录、JWT）
+- 商品模块（CRUD、图片上传）
+- 购物车模块（增删改查）
+- 订单模块（创建订单、状态流转）
+- 异常处理、日志、单元测试
+
+**预计 5 周做完**。
+
+## 我做完 Day 1 的几个心得
+
+### 1. 项目骨架比业务代码重要
+
+骨架搭对了，后面的事就是"按部就班填业务"。  
+骨架错了（比如依赖关系乱、CORS 没配），后面天天踩坑。
+
+### 2. 技术选型要适度
+
+- 没必要追求最新（SpringBoot 3 + JDK 17 主流，**别用 JDK 21 测新特性**）
+- 没必要全用大品牌（JWT 不是必须的，**Session 也行**）
+- 别选太冷门的库（出问题 StackOverflow 没答案）
+
+### 3. 数据库设计要 review
+
+我写完 DDL 后找老师 review：
+
+- `t_cart` 加了 `(user_id, product_id)` 唯一索引（防重复加购物车）
+- `t_order` 加了 `(user_id, status)` 联合索引（查"我的待支付订单"）
+- `t_product` 加了 `(status, sales DESC)` 联合索引（按销量排序）
+
+**索引早加，比上线后再加安全**。
+
+### 4. 通用代码先写
+
+- `Result<T>` 响应包装
+- `BusinessException` 业务异常
+- `GlobalExceptionHandler` 全局异常处理
+
+这些先写好，**业务代码直接用**。
+
+### 5. 文档先建好
+
+- 接口文档（Knife4j 自动生成）
+- 数据库文档（每个表字段说明）
+- README（启动步骤、依赖账号）
+
+**这些后期补很痛苦，早建好早省事**。
+
+## 下一步
+
+下一篇准备写 **电脑商城用户模块 — 注册登录接口实现**。JWT 怎么生成、密码怎么加密、token 怎么校验、登录态怎么保持。

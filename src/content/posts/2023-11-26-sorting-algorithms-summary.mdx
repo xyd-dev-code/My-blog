@@ -1,0 +1,272 @@
+---
+title: "排序算法全家桶 — 从冒泡到快排的稳定性与复杂度笔记"
+description: "复习课前把 8 种排序算法撸一遍，每种都附 C++ 实现、时间复杂度、稳定性判断，以及面试常考的快排 partition 套路。"
+pubDate: 2023-11-26
+tags: ["C++", "算法", "排序", "笔记"]
+---
+
+## 起因
+
+下学期算法分析课要讲排序，期末必考。趁现在有空把 8 种主流排序全部手写一遍，每种都记一下**时间复杂度**、**空间复杂度**、**稳定性**，免得到时候背串了。
+
+## 总览表（先放这，怕后面翻不到）
+
+| 算法 | 平均 | 最坏 | 最好 | 空间 | 稳定性 | 备注 |
+|------|------|------|------|------|--------|------|
+| 冒泡排序 | O(n²) | O(n²) | O(n)¹ | O(1) | ✅ | 教学用 |
+| 选择排序 | O(n²) | O(n²) | O(n²) | O(1) | ❌ | 没用 |
+| 插入排序 | O(n²) | O(n²) | O(n)¹ | O(1) | ✅ | 小数据快 |
+| 希尔排序 | O(n^1.3) | O(n²) | O(n) | O(1) | ❌ | 升级版插入 |
+| 归并排序 | O(n log n) | O(n log n) | O(n log n) | O(n) | ✅ | 分治典范 |
+| 快速排序 | O(n log n) | O(n²) | O(n log n) | O(log n) | ❌ | 最常用 |
+| 堆排序 | O(n log n) | O(n log n) | O(n log n) | O(1) | ❌ | 原地 |
+| 计数排序 | O(n+k) | O(n+k) | O(n+k) | O(k) | ✅ | 范围小 |
+
+> ¹ 加了"提前终止优化"才能达到。  
+> k 是数值范围。
+
+## 什么是"稳定性"？
+
+> **稳定性**：相等元素的相对顺序在排序后保持不变。
+
+举个例子：`(2, A), (1, B), (2, C)` 排序后：
+
+- 稳定：`[(1, B), (2, A), (2, C)]`——A 还在 C 前面
+- 不稳定：`[(1, B), (2, C), (2, A)]`——A 和 C 换了位置
+
+**为什么重要**：多级排序时（比如先按姓名排，再按成绩排），稳定排序保证成绩相同时姓名的顺序不变。
+
+## 1. 冒泡排序
+
+最简单也最没用的算法。**核心**：相邻元素两两比较，把最大的"冒泡"到末尾。
+
+```cpp
+void bubbleSort(vector<int>& a) {
+    int n = a.size();
+    for (int i = 0; i < n - 1; i++) {
+        bool swapped = false;
+        for (int j = 0; j < n - 1 - i; j++) {
+            if (a[j] > a[j + 1]) {
+                swap(a[j], a[j + 1]);
+                swapped = true;
+            }
+        }
+        if (!swapped) break;  // 已经有序
+    }
+}
+```
+
+**加了 `swapped` 标志**才能在已排序时 O(n) 退出。
+
+## 2. 选择排序
+
+**核心**：每次从未排序部分找最小值，放到已排序末尾。
+
+```cpp
+void selectionSort(vector<int>& a) {
+    int n = a.size();
+    for (int i = 0; i < n - 1; i++) {
+        int minIdx = i;
+        for (int j = i + 1; j < n; j++) {
+            if (a[j] < a[minIdx]) minIdx = j;
+        }
+        swap(a[i], a[minIdx]);
+    }
+}
+```
+
+**为什么不稳定**：交换时可能跳过相等的元素。
+
+## 3. 插入排序
+
+**核心**：把数组分成"已排序"和"未排序"两部分，每次从未排序部分取一个，往已排序部分插入。
+
+```cpp
+void insertionSort(vector<int>& a) {
+    int n = a.size();
+    for (int i = 1; i < n; i++) {
+        int key = a[i];
+        int j = i - 1;
+        while (j >= 0 && a[j] > key) {
+            a[j + 1] = a[j];
+            j--;
+        }
+        a[j + 1] = key;
+    }
+}
+```
+
+**为什么小数据快**：内层循环很少交换（一次赋值替代一次 swap），CPU 缓存友好。
+
+## 4. 希尔排序（Shell Sort）
+
+插入排序的升级版。**核心**：按"间隔"分组做插入排序，逐渐缩小间隔。
+
+```cpp
+void shellSort(vector<int>& a) {
+    int n = a.size();
+    for (int gap = n / 2; gap > 0; gap /= 2) {
+        for (int i = gap; i < n; i++) {
+            int key = a[i];
+            int j = i - gap;
+            while (j >= 0 && a[j] > key) {
+                a[j + gap] = a[j];
+                j -= gap;
+            }
+            a[j + gap] = key;
+        }
+    }
+}
+```
+
+复杂度分析很麻烦（取决于 gap 序列），一般记 **O(n^1.3)** 即可。
+
+## 5. 归并排序（分治典范）
+
+**核心**：把数组分成两半分别排序，再合并两个有序数组。
+
+```cpp
+void mergeSort(vector<int>& a, int l, int r) {
+    if (l >= r) return;
+    int mid = (l + r) / 2;
+    mergeSort(a, l, mid);
+    mergeSort(a, mid + 1, r);
+    merge(a, l, mid, r);
+}
+
+void merge(vector<int>& a, int l, int mid, int r) {
+    vector<int> tmp(r - l + 1);
+    int i = l, j = mid + 1, k = 0;
+    while (i <= mid && j <= r) {
+        if (a[i] <= a[j]) tmp[k++] = a[i++];
+        else tmp[k++] = a[j++];
+    }
+    while (i <= mid) tmp[k++] = a[i++];
+    while (j <= r) tmp[k++] = a[j++];
+    for (int p = 0; p < tmp.size(); p++) a[l + p] = tmp[p];
+}
+```
+
+**为什么稳定**：合并时 `a[i] <= a[j]` 保证了相等时左半边的元素在前。
+
+**缺点**：需要 O(n) 额外空间。大数据量时内存吃紧。
+
+## 6. 快速排序（面试之王）
+
+**核心**：选一个 pivot，把小于 pivot 的放左边，大于的放右边，然后递归。
+
+### 经典 Lomuto partition
+
+```cpp
+int partition(vector<int>& a, int l, int r) {
+    int pivot = a[r];  // 选最后一个
+    int i = l - 1;
+    for (int j = l; j < r; j++) {
+        if (a[j] <= pivot) {
+            i++;
+            swap(a[i], a[j]);
+        }
+    }
+    swap(a[i + 1], a[r]);
+    return i + 1;
+}
+
+void quickSort(vector<int>& a, int l, int r) {
+    if (l >= r) return;
+    int p = partition(a, l, r);
+    quickSort(a, l, p - 1);
+    quickSort(a, p + 1, r);
+}
+```
+
+### 我当时踩的坑
+
+**坑 1：栈溢出**
+
+写完跑 `quickSort(a, 0, 100000);`，程序直接 segfault。  
+**根因**：数据有序时，每次 partition 都把 pivot 放到最边上，递归深度 = n，栈爆了。  
+**优化**：
+
+- 随机选 pivot
+- 三数取中（首、中、尾的中位数）
+- 改成尾递归或迭代
+
+**坑 2：为什么 `pivot = a[r]` 而不是 `a[l]`**
+
+只是实现选择问题。选 `a[r]` 时，Lomuto 的写法更直观。但实测随机化 pivot 性能差距很大。
+
+**坑 3：`< vs <=**
+
+`if (a[j] <= pivot)` 这里必须是 `<=`。如果写成 `<`，遇到重复元素会死循环或者退化。  
+这也是快速排序**不稳定**的原因——`<=` 在重复元素间会做不必要的交换，破坏了稳定性。
+
+## 7. 堆排序
+
+**核心**：建大顶堆，反复取堆顶（最大值）放到末尾。
+
+```cpp
+void heapify(vector<int>& a, int n, int i) {
+    int largest = i;
+    int l = 2 * i + 1;
+    int r = 2 * i + 2;
+    if (l < n && a[l] > a[largest]) largest = l;
+    if (r < n && a[r] > a[largest]) largest = r;
+    if (largest != i) {
+        swap(a[i], a[largest]);
+        heapify(a, n, largest);
+    }
+}
+
+void heapSort(vector<int>& a) {
+    int n = a.size();
+    // 建堆
+    for (int i = n / 2 - 1; i >= 0; i--)
+        heapify(a, n, i);
+    // 一个个取
+    for (int i = n - 1; i > 0; i--) {
+        swap(a[0], a[i]);
+        heapify(a, i, 0);
+    }
+}
+```
+
+**优点**：原地 O(1) 额外空间，时间稳定 O(n log n)。  
+**缺点**：不稳定，且缓存不友好（堆是树形结构访问）。
+
+## 8. 计数排序（非比较排序）
+
+**核心**：用额外数组统计每个值出现的次数，再按顺序回填。
+
+```cpp
+void countingSort(vector<int>& a, int k) {  // k = max value
+    vector<int> cnt(k + 1, 0);
+    for (int x : a) cnt[x]++;
+    int idx = 0;
+    for (int v = 0; v <= k; v++) {
+        while (cnt[v]-- > 0) a[idx++] = v;
+    }
+}
+```
+
+**局限**：k 不能太大，否则 O(k) 空间爆炸。  
+**适用场景**：年龄、成绩等**范围小**的整数排序。
+
+## 实战中的选择（面试常问）
+
+| 场景 | 推荐 | 原因 |
+|------|------|------|
+| 一般用途 | **快排** | 平均最快，常数小 |
+| 需要稳定 | **归并** | O(n log n) 稳定 |
+| 内存敏感 | **堆排** | O(1) 额外空间 |
+| 数据基本有序 | **插入** | O(n) 接近 |
+| 范围小的整数 | **计数** | O(n+k) 极快 |
+| Java 默认 | **DualPivotQuicksort** | JDK 内核优化版 |
+
+**Java 的 `Arrays.sort()`**：
+
+- 基本类型：Dual-Pivot Quicksort（快排变种）
+- 对象类型：TimSort（归并 + 插入，稳定）
+
+## 下一步
+
+下一篇准备写 **Java 入门笔记**——和 C++ 的对比、面向对象的"this"到底是啥、以及那个让我抓狂的 `equals` vs `==`。

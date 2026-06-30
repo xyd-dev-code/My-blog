@@ -1,0 +1,736 @@
+---
+title: "电脑商城 Day 8-9 — 项目收尾：AOP 日志、统一异常、Docker 部署"
+description: "商城跑通了，但缺'日常运维'那套：怎么记操作日志（AOP）、怎么统一处理异常（@RestControllerAdvice）、怎么 Docker 打包部署（Dockerfile + docker-compose）。含 3 个具体踩坑（AOP 切不到内部调用、@ExceptionHandler 优先级、Docker 时区）。"
+pubDate: 2025-07-29
+tags: ["电脑商城", "AOP", "Docker", "SpringBoot"]
+---
+
+## 起因
+
+电脑商城 Day 8-9，最后两天做"收尾"。
+
+之前写的 Controller、Service 一堆，**但没有统一的"基础设施"**：
+
+- 操作日志没记（谁在什么时候改了什么）
+- 异常处理到处 `try-catch`（每个 Controller 都有 `e.printStackTrace()`）
+- 部署到服务器不会（jar 怎么跑、依赖怎么装）
+
+老师要求：
+
+> "至少做三个：操作日志、统一异常、Docker 部署。"
+
+## 第一步：操作日志（AOP）
+
+### 1. 加 AOP 依赖
+
+`mall-common/pom.xml`：
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-aop</artifactId>
+</dependency>
+```
+
+### 2. 定义注解
+
+```java
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface OperationLog {
+    String value() default "";  // 操作描述
+    String module() default ""; // 模块名
+}
+```
+
+### 3. 切面
+
+```java
+@Aspect
+@Component
+@Order(1)
+public class OperationLogAspect {
+
+    @Autowired
+    private OperationLogMapper logMapper;
+
+    @Autowired
+    private HttpServletRequest request;
+
+    @Around("@annotation(operationLog)")
+    public Object around(ProceedingJoinPoint pjp, OperationLog operationLog) throws Throwable {
+        long start = System.currentTimeMillis();
+        
+        // 获取登录用户
+        Long userId = UserContext.getCurrentUserId();
+        
+        // 方法签名
+        MethodSignature signature = (MethodSignature) pjp.getSignature();
+        Method method = signature.getMethod();
+        
+        Object result = null;
+        Throwable error = null;
+        try {
+            result = pjp.proceed();
+            return result;
+        } catch (Throwable e) {
+            error = e;
+            throw e;
+        } finally {
+            // 记日志
+            long duration = System.currentTimeMillis() - start;
+            OperationLogEntity log = new OperationLogEntity();
+            log.setUserId(userId);
+            log.setModule(operationLog.module());
+            log.setOperation(operationLog.value());
+            log.setMethod(method.getDeclaringClass().getName() + "." + method.getName());
+            log.setIp(getClientIp());
+            log.setDuration(duration);
+            log.setSuccess(error == null);
+            log.setErrorMsg(error == null ? null : error.getMessage());
+            log.setCreateTime(LocalDateTime.now());
+            logMapper.insert(log);
+        }
+    }
+
+    private String getClientIp() {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        return ip;
+    }
+}
+```
+
+### 4. 用注解
+
+```java
+@PostMapping("/orders")
+@OperationLog(value = "创建订单", module = "订单管理")
+public Result<String> createOrder(@RequestBody CreateOrderRequest req) {
+    // ...
+}
+```
+
+### 5. 日志表
+
+```sql
+CREATE TABLE t_operation_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT,
+    module VARCHAR(50),
+    operation VARCHAR(100),
+    method VARCHAR(200),
+    ip VARCHAR(50),
+    duration BIGINT,
+    success TINYINT,
+    error_msg TEXT,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_module (module),
+    INDEX idx_time (create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作日志表';
+```
+
+**第一个坑：AOP 切不到同类内部调用**。
+
+我把 `createOrder` 拆成 `validate + doCreateOrder`，**都加 `@OperationLog`**，**结果只记到外层**。
+
+**原因**：同类内部调用走 `this`，不走代理，**AOP 拦截不到**。
+
+**正解**：
+
+1. 拆 Service（同订单模块的修复方案）
+2. 或者只在外层加注解
+3. 或者注入自己 `self`
+
+我选了 1。
+
+### 6. 异步记日志
+
+切面记日志会**阻塞业务**——日志写库失败怎么办？记日志本身抛异常会污染业务。
+
+**正解**：用 `@Async` 异步记日志
+
+```java
+@Aspect
+@Component
+@Order(1)
+public class OperationLogAspect {
+
+    @Autowired
+    private AsyncLogService asyncLogService;
+
+    @Around("@annotation(operationLog)")
+    public Object around(ProceedingJoinPoint pjp, OperationLog operationLog) throws Throwable {
+        long start = System.currentTimeMillis();
+        Object result = null;
+        Throwable error = null;
+        try {
+            result = pjp.proceed();
+            return result;
+        } catch (Throwable e) {
+            error = e;
+            throw e;
+        } finally {
+            // 异步记日志
+            OperationLogEntity log = buildLog(pjp, operationLog, start, error);
+            asyncLogService.saveAsync(log);
+        }
+    }
+}
+
+@Service
+public class AsyncLogService {
+    @Async
+    public void saveAsync(OperationLogEntity log) {
+        try {
+            logMapper.insert(log);
+        } catch (Exception e) {
+            // 记日志失败不影响业务
+            log.error("记日志失败", e);
+        }
+    }
+}
+```
+
+加 `@EnableAsync` 启动类：
+
+```java
+@SpringBootApplication
+@EnableAsync
+@MapperScan("com.mall.dao.mapper")
+public class MallWebApplication { ... }
+```
+
+**第二个坑：@Async 也失效**。
+
+同类内部调用 `@Async` 不生效——**和事务自调用是同一个问题**。
+
+**正解**：`AsyncLogService` 必须是另一个 Bean，**不能和 `OperationLogAspect` 在同一个类**。
+
+## 第二步：统一异常处理
+
+之前每个 Controller 写：
+
+```java
+try {
+    // ...
+} catch (Exception e) {
+    e.printStackTrace();
+    return Result.fail(500, "系统异常");
+}
+```
+
+**重复！难看！**
+
+### 1. 定义业务异常
+
+`mall-common`：
+
+```java
+public class BusinessException extends RuntimeException {
+
+    private final int code;
+
+    public BusinessException(int code, String message) {
+        super(message);
+        this.code = code;
+    }
+
+    public int getCode() {
+        return code;
+    }
+}
+```
+
+### 2. 全局异常处理
+
+```java
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /**
+     * 业务异常
+     */
+    @ExceptionHandler(BusinessException.class)
+    public Result<Void> handleBusiness(BusinessException e) {
+        log.warn("业务异常: code={}, msg={}", e.getCode(), e.getMessage());
+        return Result.fail(e.getCode(), e.getMessage());
+    }
+
+    /**
+     * 参数校验异常
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Result<Void> handleValidation(MethodArgumentNotValidException e) {
+        String msg = e.getBindingResult().getFieldErrors().stream()
+            .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
+            .collect(Collectors.joining(", "));
+        return Result.fail(400, msg);
+    }
+
+    /**
+     * 权限异常
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public Result<Void> handleAccess(AccessDeniedException e) {
+        return Result.fail(403, "无权限访问");
+    }
+
+    /**
+     * 其他异常
+     */
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handleException(Exception e) {
+        log.error("系统异常", e);
+        return Result.fail(500, "系统异常，请联系管理员");
+    }
+}
+```
+
+### 3. Controller 不用 try-catch 了
+
+```java
+@PostMapping("/orders")
+public Result<String> createOrder(@RequestBody @Valid CreateOrderRequest req) {
+    // 抛 BusinessException 自动被处理
+    return Result.ok(orderService.createOrder(userId, req));
+}
+```
+
+`@Valid` 触发参数校验，校验失败抛 `MethodArgumentNotValidException`——也被全局处理。
+
+**第三个坑：自定义异常被通用异常"吃掉"**。
+
+我加了一个 `LoginException`，但被通用 `Exception` 处理了。
+
+**原因**：`@ExceptionHandler` 匹配顺序：先匹配最具体的，没有才匹配父类。
+
+如果 `LoginException extends RuntimeException`，**但没有专门的 `@ExceptionHandler(LoginException.class)`**，会找到 `Exception.class` 那个。
+
+**正解**：用 `@Order` 指定优先级，或者**给每个自定义异常写一个 Handler**。
+
+我给每个业务异常都写了 Handler。
+
+### 4. 异常处理的几个细节
+
+**1. 不要把异常吃掉**
+
+```java
+// ❌ 错
+@ExceptionHandler(Exception.class)
+public Result<Void> handle(Exception e) {
+    return Result.fail(500, "出错啦");  // 没了？日志呢？
+}
+
+// ✅ 对
+@ExceptionHandler(Exception.class)
+public Result<Void> handle(Exception e) {
+    log.error("系统异常", e);  // 关键：记日志
+    return Result.fail(500, "出错啦");
+}
+```
+
+**2. 异常信息不能泄露**
+
+```java
+// ❌ 错：把异常信息返回给前端
+return Result.fail(500, e.getMessage());  // 可能泄露 SQL、文件路径
+
+// ✅ 对：友好提示 + 详细日志
+log.error("系统异常", e);
+return Result.fail(500, "系统异常");
+```
+
+**3. 参数校验的友好提示**
+
+```java
+@PostMapping("/users")
+public Result<Void> register(@RequestBody @Valid RegisterRequest req) {
+    // ...
+}
+
+@Data
+public class RegisterRequest {
+    @NotBlank(message = "用户名不能为空")
+    private String username;
+    
+    @Length(min = 6, max = 20, message = "密码长度 6-20 位")
+    private String password;
+    
+    @Email(message = "邮箱格式错误")
+    private String email;
+}
+```
+
+校验失败返回：
+
+```json
+{
+  "code": 400,
+  "message": "username: 用户名不能为空, password: 密码长度 6-20 位",
+  "data": null
+}
+```
+
+**4. 统一响应包装**
+
+之前我手动 `return Result.ok()`——烦！
+
+**正解**：用 `ResponseBodyAdvice` 统一包装
+
+```java
+@RestControllerAdvice
+public class ResponseAdvice implements ResponseBodyAdvice<Object> {
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Override
+    public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
+        // 不包装 Result 类型和 void
+        return !returnType.getParameterType().equals(Result.class);
+    }
+
+    @Override
+    public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
+                                   Class<? extends HttpMessageConverter<?>> selectedConverterType,
+                                   ServerHttpRequest request, ServerHttpResponse response) {
+        if (body == null) {
+            return Result.ok();
+        }
+        if (body instanceof String) {
+            // String 类型特殊处理
+            try {
+                response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                return objectMapper.writeValueAsString(Result.ok(body));
+            } catch (JsonProcessingException e) {
+                throw new BusinessException(500, "序列化失败");
+            }
+        }
+        return Result.ok(body);
+    }
+}
+```
+
+这样 Controller 就能直接返回数据：
+
+```java
+@GetMapping("/users/{id}")
+public UserVO getUser(@PathVariable Long id) {  // 直接返回 UserVO，自动包成 Result
+    return userService.getById(id);
+}
+```
+
+**漂亮**。
+
+## 第三步：Docker 部署
+
+### 1. Dockerfile
+
+项目根目录：
+
+```dockerfile
+# 基础镜像
+FROM eclipse-temurin:17-jre
+
+# 作者
+LABEL maintainer="mall@example.com"
+
+# 工作目录
+WORKDIR /app
+
+# 复制 jar
+COPY mall-web/target/mall-web-1.0.0.jar app.jar
+
+# 时区
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+RUN echo 'Asia/Shanghai' > /etc/timezone
+
+# 启动
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "-Dspring.profiles.active=prod", "app.jar"]
+```
+
+### 2. 构建镜像
+
+```bash
+mvn clean package -DskipTests
+
+docker build -t mall-web:1.0 .
+```
+
+### 3. docker-compose
+
+`docker-compose.yml`：
+
+```yaml
+version: '3.8'
+
+services:
+  mall-web:
+    image: mall-web:1.0
+    container_name: mall-web
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/mall?useSSL=false&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root123
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+    depends_on:
+      - mysql
+      - redis
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: mall-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=mall
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+      - ./mysql/conf:/etc/mysql/conf.d
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: mall-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass root123
+    volumes:
+      - ./redis/data:/data
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: mall-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/html:/usr/share/nginx/html
+    depends_on:
+      - mall-web
+    restart: unless-stopped
+```
+
+**第四个坑：Docker 时区**。
+
+容器跑起来，**日志时间差 8 小时**——UTC 时间。
+
+**正解**：
+
+1. Dockerfile 设置时区（已经加了）
+2. 启动时加 JVM 参数 `-Duser.timezone=Asia/Shanghai`
+3. mysql 服务环境变量 `TZ=Asia/Shanghai`
+
+我加了三个，稳了。
+
+### 4. 启动
+
+```bash
+docker-compose up -d
+```
+
+查看状态：
+
+```bash
+docker-compose ps
+```
+
+查看日志：
+
+```bash
+docker-compose logs -f mall-web
+```
+
+### 5. Nginx 反向代理
+
+`nginx/conf.d/mall.conf`：
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://mall-web:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 静态资源（前端打包）
+    location /static/ {
+        alias /usr/share/nginx/html/static/;
+        expires 30d;
+    }
+}
+```
+
+## 几个运维小工具
+
+### 1. 健康检查
+
+```yaml
+services:
+  mall-web:
+    # ...
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
+
+### 2. 日志查看
+
+```bash
+# 实时看日志
+docker logs -f mall-web
+
+# 最近 100 行
+docker logs --tail 100 mall-web
+```
+
+### 3. 进入容器调试
+
+```bash
+docker exec -it mall-web /bin/bash
+```
+
+### 4. 查看 JVM 状态
+
+```bash
+# 容器内
+jps
+jstat -gc <pid>
+jstack <pid>
+```
+
+或者用 SpringBoot Actuator：
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, prometheus
+  endpoint:
+    health:
+      show-details: always
+```
+
+访问 `http://localhost:8080/actuator/health`：
+
+```json
+{
+  "status": "UP",
+  "components": {
+    "db": { "status": "UP" },
+    "redis": { "status": "UP" },
+    "diskSpace": { "status": "UP" }
+  }
+}
+```
+
+## 我做完项目收尾的几个心得
+
+### 1. AOP 是双刃剑
+
+**用得好**：日志、权限、事务统一处理。
+
+**用得烂**：调试困难、性能损耗、栈深难排查。
+
+**原则**：
+
+- AOP 处理**横切关注点**（日志、权限）
+- **业务逻辑**不要写在 AOP 里
+- 异步记日志避免阻塞业务
+
+### 2. 异常处理是基础
+
+每个项目都要有：
+
+- 业务异常类（`BusinessException`）
+- 全局异常处理（`@RestControllerAdvice`）
+- 异常信息**不泄露给前端**
+- 详细异常**记日志**
+
+**不要在 Controller 里 try-catch**——丑、漏。
+
+### 3. Docker 部署的关键
+
+- **时区**：UTC 和 CST 差 8 小时
+- **端口映射**：宿主机:容器
+- **数据持久化**：volume 挂载
+- **环境变量**：配置分离
+- **健康检查**：自动重启
+
+**docker-compose 适合小项目**，**Kubernetes 适合大项目**。
+
+### 4. 项目要"可运维"
+
+- 健康检查接口
+- 日志统一输出
+- 监控指标暴露
+- 配置外置（环境变量或配置中心）
+- 优雅停机（处理完请求再退出）
+
+### 5. 收尾比开发重要
+
+一个项目**做完业务功能不算完**——
+
+- 没日志：出问题不知道怎么查
+- 没异常处理：用户体验差、调试难
+- 没部署脚本：上线累死
+
+**最后两天做的事，决定项目的"质量感"**。
+
+## 项目完成度总结
+
+✅ 用户模块：注册、登录、JWT 鉴权、密码加密
+
+✅ 商品模块：CRUD、分类、上下架、图片上传
+
+✅ 购物车模块：Redis Hash 存储、增减、勾选、批量
+
+✅ 订单模块：事务控制、库存扣减、状态流转、异步消息
+
+✅ 基础设施：操作日志、统一异常、Docker 部署、Nginx 反向代理
+
+**项目链接**：[github.com/xxx/mall](https://github.com)（当时没传 GitHub，老师评分了就行）
+
+**实际跑通**：
+
+```
+✅ 1000 个商品上架
+✅ 100 个用户注册
+✅ 500 个订单生成
+✅ 50 个并发抢库存测试
+✅ Docker compose 一键部署
+```
+
+## 下一步
+
+下一篇准备写 **亚信实习第一周 — 第一次到公司看生产代码**。从校园项目到企业项目，差距在哪、怎么适应。

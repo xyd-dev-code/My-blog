@@ -1,0 +1,497 @@
+---
+title: "SpringBoot 分层架构 — 把一个 Controller 拆成 Controller + Service + Mapper"
+description: "老师 review 我的作业：所有逻辑塞 controller 里。让我按 Controller/Service/Mapper 分层重构。这篇记完整的拆分过程，以及我之前为什么写成一坨。"
+pubDate: 2024-05-13
+tags: ["SpringBoot", "分层架构", "笔记", "重构"]
+---
+
+## 起因
+
+老师检查上次的 Hello World 作业，看到我的代码：
+
+```java
+@RestController
+public class UserController {
+
+    // 用户列表 - 全在 controller 里
+    @GetMapping("/users")
+    public List<User> listUsers() {
+        // 1. 创建数据库连接
+        Connection conn = DriverManager.getConnection(...);
+        // 2. 写 SQL
+        PreparedStatement ps = conn.prepareStatement("SELECT * FROM users");
+        // 3. 查数据
+        ResultSet rs = ps.executeQuery();
+        // 4. 拼装 List
+        List<User> users = new ArrayList<>();
+        while (rs.next()) {
+            User u = new User();
+            u.setId(rs.getLong("id"));
+            u.setName(rs.getString("name"));
+            users.add(u);
+        }
+        // 5. 关连接
+        conn.close();
+        return users;
+    }
+}
+```
+
+老师皱眉：
+
+> "你这个 controller 里塞了 JDBC 连接、SQL 执行、结果拼装、连接关闭…… 业务代码和数据库代码混在一起。"
+
+让我按 **Controller → Service → Mapper** 三层重构。
+
+## 之前的代码为什么烂
+
+我之前学 Java Web（Servlet）时，老师就是这么教的——一个 Servlet 处理一个业务，**不分层**。
+
+但项目一大就崩了：
+
+1. **用户管理** → `UserServlet` 里塞 JDBC
+2. **订单管理** → `OrderServlet` 里塞 JDBC
+3. **支付管理** → `PaymentServlet` 里塞 JDBC
+
+每个 Servlet 都有重复的 JDBC 代码——**没法复用**。
+
+而且 SQL 直接写死在 Servlet 里，**改 SQL 要改一堆文件**。
+
+## 分层后的样子
+
+老师画的图：
+
+```
+┌─────────────────────────────────┐
+│  Controller（控制器层）           │  接收请求、返回响应
+│  - UserController               │
+│  - OrderController              │
+└────────────┬────────────────────┘
+             │ 调用
+┌────────────▼────────────────────┐
+│  Service（业务层）               │  业务逻辑、事务控制
+│  - UserService                  │
+│  - OrderService                 │
+└────────────┬────────────────────┘
+             │ 调用
+┌────────────▼────────────────────┐
+│  Mapper / DAO（数据访问层）       │  数据库操作
+│  - UserMapper                   │
+│  - OrderMapper                  │
+└────────────┬────────────────────┘
+             │ 操作
+┌────────────▼────────────────────┐
+│  Database（MySQL）              │
+└─────────────────────────────────┘
+```
+
+**依赖关系**：上层依赖下层，下层不依赖上层。**单向依赖**。
+
+## 第一步：建数据库表
+
+```sql
+CREATE TABLE t_user (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(100) NOT NULL,
+    email VARCHAR(100),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO t_user (username, password, email) VALUES
+('alice', 'pass123', 'alice@example.com'),
+('bob', 'pass456', 'bob@example.com');
+```
+
+`application.yml` 加数据库配置：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/hellodemo?useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: yourpassword
+    driver-class-name: com.mysql.cj.jdbc.Driver
+```
+
+加 MySQL 驱动 + MyBatis-Plus 依赖：
+
+```xml
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+    <version>3.5.7</version>
+</dependency>
+<dependency>
+    <groupId>com.mysql</groupId>
+    <artifactId>mysql-connector-j</artifactId>
+    <scope>runtime</scope>
+</dependency>
+```
+
+## 第二步：User 实体
+
+`com.example.hellodemo.entity.User`：
+
+```java
+@Data
+@TableName("t_user")
+public class User {
+    @TableId(type = IdType.AUTO)
+    private Long id;
+    private String username;
+    private String password;
+    private String email;
+    private LocalDateTime createdAt;
+}
+```
+
+`@TableName("t_user")` 告诉 MyBatis-Plus 这类对应 `t_user` 表。
+
+`@TableId(type = IdType.AUTO)` 表示主键自增。
+
+## 第三步：UserMapper
+
+`com.example.hellodemo.mapper.UserMapper`：
+
+```java
+public interface UserMapper extends BaseMapper<User> {
+    // 啥也不写，BaseMapper 提供通用 CRUD
+}
+```
+
+**继承 `BaseMapper<User>`** 就获得了所有通用方法——`selectById` `selectList` `insert` `updateById` `deleteById`。
+
+**对比我之前的写法**：原来要写 JDBC 连接、SQL、ResultSet 拼装 20 行代码，现在 0 行。
+
+## 第四步：UserService
+
+`com.example.hellodemo.service.UserService`（接口）：
+
+```java
+public interface UserService {
+    List<User> listUsers();
+    User getUser(Long id);
+    void createUser(User user);
+}
+```
+
+`com.example.hellodemo.service.impl.UserServiceImpl`（实现）：
+
+```java
+@Service
+public class UserServiceImpl implements UserService {
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Override
+    public List<User> listUsers() {
+        return userMapper.selectList(null);
+    }
+
+    @Override
+    public User getUser(Long id) {
+        return userMapper.selectById(id);
+    }
+
+    @Override
+    public void createUser(User user) {
+        // 业务校验
+        if (user.getUsername() == null || user.getUsername().isEmpty()) {
+            throw new IllegalArgumentException("用户名不能为空");
+        }
+        // 这里可以加密码加密、查重等业务逻辑
+        userMapper.insert(user);
+    }
+}
+```
+
+## 第五步：UserController
+
+`com.example.hellodemo.controller.UserController`：
+
+```java
+@RestController
+@RequestMapping("/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @GetMapping
+    public List<User> list() {
+        return userService.listUsers();
+    }
+
+    @GetMapping("/{id}")
+    public User get(@PathVariable Long id) {
+        return userService.getUser(id);
+    }
+
+    @PostMapping
+    public String create(@RequestBody User user) {
+        userService.createUser(user);
+        return "创建成功";
+    }
+}
+```
+
+**Controller 只做三件事**：
+
+1. 接收 HTTP 请求（参数解析）
+2. 调用 Service
+3. 返回 HTTP 响应（JSON/字符串）
+
+**不写业务逻辑、不写 SQL**。
+
+## 完整调用链
+
+请求：`GET /users/1`
+
+```
+1. Tomcat 收到请求
+2. Spring MVC 路由匹配 → UserController.get(1)
+3. Controller 调用 userService.getUser(1)
+4. Service 调用 userMapper.selectById(1)
+5. MyBatis-Plus 拼 SQL：SELECT * FROM t_user WHERE id=1
+6. JDBC 执行 SQL
+7. MyBatis-Plus 把 ResultSet 映射成 User 对象
+8. 反向返回：User → Service → Controller → JSON
+9. Tomcat 把 JSON 写回 HTTP 响应
+```
+
+**9 步**——听起来复杂，但每一层职责清晰。
+
+## 之前的代码 vs 现在的代码
+
+**之前**（一切在 controller）：
+
+```java
+@GetMapping("/users")
+public List<User> listUsers() throws SQLException {
+    Connection conn = DriverManager.getConnection(URL, USER, PWD);
+    PreparedStatement ps = conn.prepareStatement("SELECT * FROM users");
+    ResultSet rs = ps.executeQuery();
+    List<User> users = new ArrayList<>();
+    while (rs.next()) {
+        User u = new User();
+        u.setId(rs.getLong("id"));
+        u.setName(rs.getString("name"));
+        users.add(u);
+    }
+    conn.close();
+    return users;
+}
+```
+
+**现在**（分层）：
+
+```java
+// Controller
+@GetMapping
+public List<User> list() {
+    return userService.listUsers();
+}
+
+// Service
+public List<User> listUsers() {
+    return userMapper.selectList(null);
+}
+
+// Mapper - 啥也没写
+```
+
+**Controller 从 20 行变 1 行**，业务逻辑都在 Service。
+
+## 加个分页功能
+
+如果我想加分页查询：
+
+```java
+// Mapper - 自动支持
+// 不需要改
+
+// Service
+public Page<User> listUsers(int pageNum, int pageSize) {
+    Page<User> page = new Page<>(pageNum, pageSize);
+    LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+    wrapper.orderByDesc(User::getCreatedAt);
+    return userMapper.selectPage(page, wrapper);
+}
+
+// Controller
+@GetMapping
+public Page<User> list(@RequestParam(defaultValue = "1") int pageNum,
+                       @RequestParam(defaultValue = "10") int pageSize) {
+    return userService.listUsers(pageNum, pageSize);
+}
+```
+
+**Controller 没动 SQL，Service 没改 JDBC**——分页能力是 MyBatis-Plus 提供的。
+
+## 加个事务
+
+如果 `createUser` 要做两件事：插入用户 + 发欢迎邮件。
+
+```java
+@Service
+public class UserServiceImpl implements UserService {
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private EmailService emailService;
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void createUser(User user) {
+        userMapper.insert(user);
+        emailService.sendWelcome(user.getEmail());  // 失败回滚
+    }
+}
+```
+
+`@Transactional` 注解加在 Service 方法上：
+
+- 正常返回 → 提交
+- 抛异常 → 回滚
+- 跨多个 Mapper 操作保证原子性
+
+**这就是分层的好处**：事务控制在 Service 层，Controller 和 Mapper 都不用关心。
+
+## 加个日志
+
+我之前用 `System.out.println` debug，老师说生产环境不能用这个，要用 SLF4J + Logback。
+
+```java
+@Service
+public class UserServiceImpl implements UserService {
+
+    private static final Logger log = LoggerFactory.getLogger(UserServiceImpl.class);
+
+    @Override
+    public User getUser(Long id) {
+        log.info("查询用户: id={}", id);
+        return userMapper.selectById(id);
+    }
+}
+```
+
+日志输出：
+
+```
+2024-05-13 14:23:15  INFO  c.e.h.service.impl.UserServiceImpl - 查询用户: id=1
+```
+
+比 `System.out.println` 强在：
+
+- 带时间戳
+- 带类名
+- 带日志级别（INFO / WARN / ERROR）
+- 可以输出到文件 / ELK / 远程日志系统
+
+## 我当时没搞懂的几个点
+
+### 1. `@Autowired` 怎么知道注入哪个？
+
+```java
+@Autowired
+private UserMapper userMapper;
+```
+
+Spring 启动时扫描 `UserMapper` 接口（被 `@MapperScan` 注册），自动生成实现类，注入进来。
+
+**整个过程我不用写一行实现代码**。
+
+### 2. `@Service` `@Controller` `@Component` 啥区别？
+
+本质上都是 `@Component`，只是语义不同：
+
+| 注解 | 用途 |
+|------|------|
+| `@Component` | 通用组件 |
+| `@Service` | 业务层（语义化 `@Component`）|
+| `@Repository` | 数据访问层（语义化 `@Component`，额外把 SQL 异常转 Spring 异常）|
+| `@Controller` | Web 层（语义化 `@Component`）|
+| `@RestController` | `@Controller` + `@ResponseBody` |
+
+**功能上完全等价**，只是为了让人看懂这是哪一层。
+
+### 3. 为什么 Mapper 是接口不是类？
+
+MyBatis-Plus 用 **动态代理** 在运行时生成实现类：
+
+```java
+UserMapper mapper = (UserMapper) Proxy.newProxyInstance(...);
+// 调用 mapper.selectById(1L) 时，代理类会自动拼 SQL、执行、映射
+```
+
+**好处**：我不用写实现类，框架帮我搞定。
+
+## 完整项目结构
+
+```
+src/main/java/com/example/hellodemo/
+├── HelloDemoApplication.java          ← 启动类
+├── controller/
+│   └── UserController.java            ← Web 层
+├── service/
+│   ├── UserService.java               ← 业务接口
+│   └── impl/
+│       └── UserServiceImpl.java       ← 业务实现
+├── mapper/
+│   └── UserMapper.java                ← 数据访问
+└── entity/
+    └── User.java                      ← 实体类
+```
+
+**对比之前**（一坨）：
+
+```
+src/main/java/com/example/hellodemo/
+├── HelloDemoApplication.java
+└── UserController.java                ← 啥都塞这里
+```
+
+分层之后，**每个文件职责单一**，好维护、好测试、好协作。
+
+## 一个我踩过的循环依赖坑
+
+```java
+@Service
+public class UserServiceImpl {
+    @Autowired
+    private OrderService orderService;  // 依赖 OrderService
+}
+
+@Service
+public class OrderServiceImpl {
+    @Autowired
+    private UserService userService;  // 依赖 UserService
+}
+```
+
+启动报错：
+
+```
+APPLICATION FAILED TO START
+The dependencies of some of the beans in the application context form a cycle:
+   userService  ←→  orderService
+```
+
+**A 依赖 B，B 依赖 A**——Spring 直接拒绝。
+
+**解法**：抽公共方法到第三个 Service，或者重新设计业务。
+
+我这次踩坑是因为：
+
+- `UserService` 想根据用户信息查最近订单
+- `OrderService` 想根据订单信息查下单用户
+
+**正解**：把"根据用户查订单"放进 `OrderService`，`UserService` 调用 `OrderService.listByUserId(userId)`。**单向依赖**。
+
+## 下一步
+
+下一篇准备写 **SpringBoot 常用注解**——`@Autowired` `@PathVariable` `@RequestBody` `@Configuration` 等等，每个都配一个具体例子，写完一遍就都记住了。

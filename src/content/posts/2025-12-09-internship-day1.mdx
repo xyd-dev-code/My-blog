@@ -1,0 +1,325 @@
+---
+title: "亚信实习 Day 1 — 入职第一天都干了些什么"
+description: "2025 年 12 月入职亚信科技，做业务支撑系统后端开发。入职第一天领工位、装环境、开账号、看代码。导师让我先看 user 模块，2 天后给他讲业务。"
+pubDate: 2025-12-09
+tags: ["实习", "亚信科技", "入职"]
+---
+
+## 起因
+
+2025 年 12 月正式入职亚信科技，做业务支撑系统的后端开发。
+
+大学最后一个寒假，没回家，直接去公司报到。
+
+**大四寒假实习**和暑期实习不一样——时间短（4 个月），公司默认你"能干活就干活，不能干就学习"。
+
+这篇记入职第一天从领工位到装环境的全过程。
+
+## 早上 9 点：报到
+
+亚信在某市 XX 大厦 N 楼，HR 在大堂接的。
+
+入职流程和网上说的一样：
+
+1. 身份证、学位证（复印件）、一寸照、银行卡
+2. 签实习协议 + 保密协议
+3. 工位分配
+4. 领工牌
+
+**工位在 18 楼某排** —— 和正式员工坐一起，没单独"实习生区"。
+
+HR 说：
+
+> "你导师是 W 哥，10 点来找你。"
+
+## 上午 10 点：导师来了
+
+导师 W 哥，工龄 5 年的 Java 开发，组长下面的核心开发。
+
+寒暄几句后 W 哥说：
+
+> "你之前做过 SpringBoot + MyBatis 项目？"
+
+我说做过电脑商城（之前博客写的那个），**W 哥说正好对得上**。
+
+然后带我做几件事：
+
+### 1. 领电脑
+
+公司配的 ThinkPad i5/16G。
+
+**重点：所有开发在公司电脑上做**，不能用个人电脑（公司信息安全要求）。
+
+### 2. 加 GitLab / 飞书 / 邮件账号
+
+公司用 **GitLab** 管代码，**飞书**做沟通（不用钉钉/企微），**企业邮箱**对外联系。
+
+每个系统都有强密码要求 + 二次验证，**20 分钟搞定**。
+
+### 3. VPN 和内网
+
+开发环境在内网，**必须挂 VPN 才能访问**。
+
+公司用的是深信服 VPN，**比在家里登个堡垒机还麻烦**：
+
+```bash
+# 登录 VPN 后才能访问 10.x.x.x 的内网地址
+ping gitlab.xxx.local  # 通了就 OK
+```
+
+W 哥测了一下我网络，**让我截图发他，确认 VPN 通了**。
+
+### 4. 装开发环境
+
+公司没预装开发环境，**全部自己装**。
+
+W 哥给我一份"新人装机清单"：
+
+- JDK 17
+- Maven 3.9（要配公司私服）
+- IDEA Ultimate（公司有 license）
+- Git
+- Docker Desktop
+- Postman（测接口）
+- DBeaver（看库）
+
+**最坑的是 Maven 私服** —— 公司有 `nexus.xxx.com`，第一次 build 必须配置 `~/.m2/settings.xml`：
+
+```xml
+<settings>
+  <servers>
+    <server>
+      <id>company-nexus</id>
+      <username>your-name</username>
+      <password>{your-password}</password>
+    </server>
+  </servers>
+  <mirrors>
+    <mirror>
+      <id>company-nexus</id>
+      <mirrorOf>*</mirrorOf>
+      <url>https://nexus.xxx.com/repository/maven-public/</url>
+    </mirror>
+  </mirrors>
+</settings>
+```
+
+**不配这个，所有依赖都下不下来**。
+
+## 下午：看代码
+
+环境装完，W 哥给我 GitLab 仓库权限：
+
+`biz-support-backend` —— **业务支撑系统的后端**。
+
+W 哥：
+
+> "你先看 `user-module`，**用户鉴权那块**。**看两天**，**周三下午给我讲**：业务怎么走的、几个核心接口是干嘛的、有哪些坑。**不用看懂所有代码**，**看懂主线就行**。"
+
+我点开 `user-module/src/main/java`，看到结构：
+
+```
+com.xxxx.biz.user/
+├── controller/
+├── service/
+│   └── impl/
+├── mapper/
+├── entity/
+├── dto/
+├── config/
+├── interceptor/
+└── exception/
+```
+
+**和我之前做的电脑商城差不多** —— **标准 SpringBoot 分层**。
+
+但代码风格和我之前写的**完全不一样**。
+
+### 公司代码 vs 学校代码
+
+| 维度 | 学校项目 | 公司代码 |
+|------|----------|----------|
+| 包结构 | 简单 3-4 层 | 8-10 层（含 manager、helper、facade） |
+| 命名 | 随意 | 严格规范（接口 + Impl 必须分两个文件） |
+| 注释 | 几乎没有 | 每个方法都要 JavaDoc |
+| 异常 | `RuntimeException` 一把梭 | 自定义业务异常体系 |
+| 日志 | `System.out.println` | SLF4J + Logback，多 level |
+| 工具类 | 写哪儿算哪儿 | 集中在 `utils/` 包，统一管理 |
+
+**最大感受**：**每个文件都"很规矩"** —— 不知道是不是 IDEA 自动检测过，但**看上去就像一个模子刻的**。
+
+## 第一个具体看的类：JwtUtil
+
+业务支撑系统用的是 JWT 鉴权，工具类长这样（**已经脱敏**）：
+
+```java
+@Component
+public class JwtUtil {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtUtil.class);
+
+    @Value("${jwt.secret}")
+    private String secret;
+
+    @Value("${jwt.expiration-seconds:86400}")
+    private Long expirationSeconds;
+
+    /**
+     * 生成 JWT token
+     *
+     * @param userId 用户 ID
+     * @param roles  角色列表
+     * @return token 字符串
+     */
+    public String generate(Long userId, List<String> roles) {
+        Date now = new Date();
+        Date expireDate = new Date(now.getTime() + expirationSeconds * 1000);
+
+        return Jwts.builder()
+                .setSubject(String.valueOf(userId))
+                .setIssuedAt(now)
+                .setExpiration(expireDate)
+                .claim("roles", roles)
+                .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)))
+                .compact();
+    }
+
+    /**
+     * 解析 token，返回用户 ID
+     *
+     * @param token token 字符串
+     * @return 用户 ID，解析失败抛业务异常
+     */
+    public Long parseUserId(String token) {
+        try {
+            Claims claims = Jwts.parserBuilder()
+                    .setSigningKey(secret.getBytes(StandardCharsets.UTF_8))
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+            return Long.parseLong(claims.getSubject());
+        } catch (ExpiredJwtException e) {
+            log.warn("token 已过期: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.TOKEN_EXPIRED);
+        } catch (JwtException e) {
+            log.warn("token 解析失败: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.TOKEN_INVALID);
+        }
+    }
+}
+```
+
+**对比我之前写的电脑商城版本**：
+
+```java
+// 我之前写的（贴在这里对比）
+public String generate(Long userId) {
+    return Jwts.builder()
+            .subject(String.valueOf(userId))
+            .issuedAt(...)
+            ...
+}
+```
+
+**差异**：
+
+1. 有完整 JavaDoc（参数、返回值、异常）
+2. 有 Logger 打日志
+3. 异常分类细（过期 vs 无效，分开抛不同业务异常）
+4. **入参带角色列表**（之前我只存了 userId）
+5. charset 显式指定（防止不同平台编码不一致）
+
+**学到的第一点**：**生产代码的"细节"是真的有道理的**。
+
+## 下午 5 点：第一次看到 master 分支
+
+我想 clone 仓库，W 哥说：
+
+> "**别 clone master**。**clone develop 分支**。**master 是生产代码，不能直接 push**。"
+
+公司用 **Git Flow**：
+
+- `master`：生产，只能通过 release 分支合并
+- `develop`：开发主分支
+- `feature/*`：新功能
+- `hotfix/*`：紧急修复
+- `release/*`：发版分支
+
+我之前学的 Git Flow **和公司实际有些差异** —— 公司 release 分支要先在内网测试，再发版。
+
+## 第一个任务
+
+下班前 30 分钟，W 哥给我一个小任务（**不是生产代码**）：
+
+> "**把 `user-module` 的 README 整理下**。**当前是空的，你按你们学校答辩的格式写一个**。**周五下班前给我**。"
+
+**第一个任务不是写代码** —— 是写文档。
+
+我那时候还有点懵，**还以为是来写代码的**。
+
+后来才明白 —— **新人写文档、看代码、问问题**，**这是公司的标准流程**。
+
+## 第一天结束时的几个体会
+
+### 1. 入职第一周就是"装环境 + 看代码"
+
+**别上来就急着写代码** —— 新人第一天一般干不了活。
+
+W 哥说新人前两周标准动作：
+
+- 装环境（1-2 天）
+- 看代码（3-5 天）
+- 提问题（每天 1-2 个）
+- 写日报
+
+### 2. 文档/工具比想象中重要
+
+公司有一大堆内部系统：
+
+- 飞书（沟通、日历、文档）
+- 邮箱（对外）
+- GitLab（代码）
+- 内部 wiki（业务知识库）
+- VPN
+- 问题工单系统（Jira-like）
+- 监控平台（夜莺/Prometheus）
+
+**光会用这些系统就要花 1-2 天**。
+
+### 3. 别用百度，用内部搜索引擎
+
+公司有内部搜索（飞书自带的），**所有内部资料都在里面**。
+
+W 哥:
+
+> "**新人问问题前先搜**。**搜不到再来问**。"
+
+### 4. 导师制 vs 学校老师
+
+导师不是"老师" —— **不布置作业、不打分**。
+
+**只看结果**：
+
+- 你写的代码能不能合到 develop
+- 你做的功能上不上得了线
+- 你排查的问题解没解决
+
+**没人追着你**，**要主动汇报**。
+
+## 第一个坑：Maven 私服配置错误
+
+晚上回家试着自己 build，跑 `mvn clean install`，**报一大片红**：
+
+```
+[ERROR] Failed to read artifact descriptor for xxx:xxx:jar:1.0.0
+```
+
+**原因**：公司内网 Maven 私服没配置对。
+
+**正解** —— 找 W 哥要了正确的 `settings.xml`（**我之前的版本 groupId 写错了**），重新 build 通过。
+
+**当晚 11 点才搞定**。
+
+## 下一步
+
+下一篇准备写 **亚信实习 Week 1 — 第一次看的真实业务模块**：用户鉴权 / 权限控制 / 拦截器链。学到了和学校项目不一样的分层和接口设计。

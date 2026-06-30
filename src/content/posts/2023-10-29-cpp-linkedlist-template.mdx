@@ -1,0 +1,234 @@
+---
+title: "链表实战 — C++ 模板类实现单向链表（含迭代器）"
+description: "数据结构课第一次大作业。从裸指针到封装模板类，把链表的增删改查写一遍，顺便把 STL list 的迭代器原理搞懂。"
+pubDate: 2023-10-29
+tags: ["C++", "数据结构", "链表", "笔记"]
+---
+
+## 起因
+
+数据结构课第一次上机作业：实现一个支持泛型的单向链表，要求带迭代器。
+
+之前写链表都是 C 风格的结构体 + 指针，10 行搞定。现在要求：
+
+- 用 **类模板** 写（`template<class T>`）
+- 自己实现 `iterator`
+- 支持 `begin() / end() / ++ / *`
+- 重载 `operator==` `operator!=`
+
+听起来高大上，其实就是把 `Node* p` 的遍历逻辑用类包起来。写完这篇记录一下。
+
+## 最简单的版本：只有 push_back 和 print
+
+先从最简单的开始，后面再迭代。
+
+```cpp
+template<class T>
+class MyList {
+private:
+    struct Node {
+        T data;
+        Node* next;
+        Node(const T& d) : data(d), next(nullptr) {}
+    };
+    Node* head_;
+public:
+    MyList() : head_(nullptr) {}
+
+    void push_back(const T& val) {
+        if (!head_) {
+            head_ = new Node(val);
+            return;
+        }
+        Node* p = head_;
+        while (p->next) p = p->next;
+        p->next = new Node(val);
+    }
+
+    void print() const {
+        for (Node* p = head_; p; p = p->next)
+            std::cout << p->data << " ";
+        std::cout << std::endl;
+    }
+};
+```
+
+测试一下：
+
+```cpp
+MyList<int> lst;
+lst.push_back(1);
+lst.push_back(2);
+lst.push_back(3);
+lst.print();  // 1 2 3
+```
+
+能跑，但问题也明显：**所有操作都要暴露 `Node*`，封装等于没封装**。
+
+## 加迭代器：把 `Node*` 包起来
+
+STL 的迭代器本质上是个"行为像指针"的对象。我自己写一个简化版：
+
+```cpp
+template<class T>
+class MyList {
+private:
+    struct Node {
+        T data;
+        Node* next;
+        Node(const T& d) : data(d), next(nullptr) {}
+    };
+    Node* head_;
+
+public:
+    // 迭代器就是一个封装了 Node* 的类
+    class iterator {
+    private:
+        Node* ptr_;
+        friend class MyList<T>;  // 让 MyList 能访问 ptr_
+    public:
+        iterator(Node* p = nullptr) : ptr_(p) {}
+
+        // 解引用
+        T& operator*() const { return ptr_->data; }
+        T* operator->() const { return &(ptr_->data); }
+
+        // 前缀++
+        iterator& operator++() {
+            ptr_ = ptr_->next;
+            return *this;
+        }
+
+        // 后缀++
+        iterator operator++(int) {
+            iterator tmp = *this;
+            ptr_ = ptr_->next;
+            return tmp;
+        }
+
+        bool operator==(const iterator& other) const { return ptr_ == other.ptr_; }
+        bool operator!=(const iterator& other) const { return ptr_ != other.ptr_; }
+    };
+
+    iterator begin() { return iterator(head_); }
+    iterator end()   { return iterator(nullptr); }
+
+    void push_back(const T& val) {
+        // ... 同上
+    }
+};
+```
+
+现在可以这么用：
+
+```cpp
+MyList<int> lst;
+lst.push_back(10);
+lst.push_back(20);
+lst.push_back(30);
+
+// 范围 for！背后就是 iterator 在工作
+for (int x : lst) {
+    std::cout << x << " ";
+}
+// 输出：10 20 30
+```
+
+## 当时踩的几个坑
+
+### 坑 1：友元的必要性
+
+我一开始没加 `friend class MyList<T>;`，结果编译器报错：`ptr_` 是 private。  
+迭代器要访问 `MyList::Node`，但 `Node` 是 `MyList` 的 private 嵌套类。  
+**解法**：要么把 `Node` 改成 public，要么 `iterator` 加 `friend`。我选了后者，因为 `Node` 暴露出去就破坏了封装。
+
+### 坑 2：`const_iterator` 没做
+
+`print` 想支持 `const MyList&`，应该返回 `const_iterator`，我没做。  
+老师点评："STL 里有 const_iterator，是为了能在 const 容器上遍历。你这个版本做不到。"  
+后来补的版本里我加了一个模板参数 `bool IsConst`，根据它返回不同的 iterator 类型——但这就是 STL 源码里的套路了，作业里不要求。
+
+### 坑 3：头节点为空时 `end()` 的语义
+
+我一开始写：
+
+```cpp
+iterator end() { return iterator(nullptr); }  // 空指针表示"末尾之后"
+```
+
+这其实是**哨兵**的简化版。STL 里的 list 节点是个**环形结构**（尾节点的 next 指向头节点），`end()` 返回的是"头节点"。  
+我这种"nullptr 当哨兵"的方式在小链表里能跑通，但如果你想实现 `--iterator`（反向遍历）就不行了——nullptr 没法往前找。  
+**作业里不要求反向**，所以暂时忽略。
+
+## 顺手实现几个常用操作
+
+写完迭代器，后面几个函数就水到渠成了：
+
+```cpp
+// 头部插入 O(1)
+void push_front(const T& val) {
+    Node* n = new Node(val);
+    n->next = head_;
+    head_ = n;
+}
+
+// 在指定位置之后插入
+iterator insert_after(iterator pos, const T& val) {
+    Node* n = new Node(val);
+    n->next = pos.ptr_->next;
+    pos.ptr_->next = n;
+    return iterator(n);
+}
+
+// 删除指定位置的节点
+iterator erase_after(iterator pos) {
+    Node* to_del = pos.ptr_->next;
+    if (!to_del) return end();
+    pos.ptr_->next = to_del->next;
+    delete to_del;
+    return iterator(pos.ptr_->next);
+}
+```
+
+## 时间复杂度记一下（怕考试忘）
+
+| 操作 | 复杂度 | 说明 |
+|------|--------|------|
+| `push_front` | O(1) | 只动 head |
+| `push_back`  | O(n) | 要遍历到尾巴（**双向链表才是 O(1)**）|
+| `insert_after(pos)` | O(1) | 已知位置 |
+| `erase_after(pos)`  | O(1) | 同上 |
+| `find` | O(n) | 必须遍历 |
+| `size()` | O(n) | 我没维护 size 字段，STL list 也是 O(n)（震惊吧）|
+
+> 顺便记一个冷知识：**C++11 之前 `std::list::size()` 是 O(n)**，因为没有 size 字段。C++11 之后规定必须是 O(1)，所以各家实现都加了 size 字段。
+
+## 析构函数：千万别忘
+
+链表最大的内存泄漏陷阱——**只 `new` 不 `delete`**。
+
+```cpp
+~MyList() {
+    Node* p = head_;
+    while (p) {
+        Node* next = p->next;
+        delete p;
+        p = next;
+    }
+    head_ = nullptr;
+}
+```
+
+写完这个我突然理解老师为啥上课反复强调"析构函数"——链表这种动态分配的资源，**没有 RAII 兜底就是定时炸弹**。
+
+## 写完之后的反思
+
+这次作业让我第一次体会到：
+
+1. **模板不是黑魔法**。本质就是"编译器替你把类型替换一遍"，写的时候完全可以用具体类型先调试。
+2. **迭代器就是指针的封装**。STL 那一套 `begin/end` 的设计，本质就是把遍历逻辑从"算法"挪到"容器"，让算法和容器解耦。
+3. **Java 的 `Iterator` 接口就是抄的 C++**。下学期学 Java 集合框架的时候回头看，会发现 `hasNext() next() remove()` 几乎一一对应。
+
+## 下一步
+
+下一篇写**二叉树的递归遍历**——作业要求用 C++ 实现二叉搜索树的插入、删除、查找，重点是**递归思维**和**删除时的三种情况**。

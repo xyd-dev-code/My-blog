@@ -1,0 +1,414 @@
+---
+title: "把 Demo 项目拆成 Maven 多模块 — 从一团乱麻到分层清晰"
+description: "老师检查作业，发现我一个 module 里塞了 controller、service、mapper、entity 一堆代码。让我拆成多模块。这篇是完整的'拆项目'过程，含每个步骤具体在 IDEA 里点哪里。"
+pubDate: 2025-01-11
+tags: ["Maven", "多模块", "笔记", "项目结构"]
+---
+
+## 起因
+
+老师检查作业，看了一眼我的项目结构：
+
+```
+mall/
+├── src/main/java/
+│   ├── com/example/mall/
+│   │   ├── controller/   ← 8 个 Controller
+│   │   ├── service/      ← 12 个 Service
+│   │   ├── mapper/       ← 15 个 Mapper
+│   │   ├── entity/       ← 20 个 Entity
+│   │   ├── common/       ← 工具类
+│   │   └── config/       ← 配置类
+└── pom.xml
+```
+
+老师皱眉：
+
+> "所有代码全堆一个 module？这项目再大点就崩了。学过分模块吗？"
+
+我没学过。当天晚上回家就把项目拆了。
+
+## 我想拆成什么样
+
+参考了 GitHub 上几个开源项目，最后决定拆成这样：
+
+```
+mall-parent/              ← 父 POM，只做依赖管理
+├── mall-common/          ← 通用工具（返回包装、异常、常量）
+├── mall-domain/          ← 实体类、DTO、枚举
+├── mall-dao/             ← Mapper 接口
+├── mall-service/         ← Service 接口和实现
+└── mall-web/             ← Controller，启动类
+```
+
+**依赖关系**（只能向下依赖）：
+
+```
+mall-web  →  mall-service  →  mall-dao  →  mall-domain
+                            ↘
+                          mall-common（谁都能引用）
+```
+
+> 关键原则：**上层依赖下层，下层不能依赖上层**。比如 `mall-dao` 不能 import `mall-service` 的类，否则就成了循环依赖。
+
+## 第一步：创建父 POM
+
+在 IDEA 里：`File → New → Project → Maven → 选 JDK 17 → 起名 mall-parent`。
+
+打开 `pom.xml`，**重点修改 `<packaging>`**：
+
+```xml
+<groupId>com.example</groupId>
+<artifactId>mall-parent</artifactId>
+<version>1.0.0-SNAPSHOT</version>
+<packaging>pom</packaging>  <!-- 关键：父模块必须是 pom -->
+```
+
+`<packaging>pom</packaging>` 表示这个 module **不打 jar/war**，只用来组织子模块。
+
+## 第二步：建第一个子模块 mall-common
+
+在 IDEA 左侧项目根目录上右键：
+
+```
+New → Module → Maven → 起名 mall-common
+```
+
+新建后会自动在父 `pom.xml` 里加一段：
+
+```xml
+<modules>
+    <module>mall-common</module>
+</modules>
+```
+
+**这一步就建立了父子关系**。`mall-parent/pom.xml` 是父，`mall-common` 是子。
+
+把原来 `src/main/java/com/example/mall/common/` 下的工具类复制到 `mall-common/src/main/java/com/example/mall/common/`。
+
+## 第三步：依赖管理
+
+父 POM 加 `<dependencyManagement>` 统一版本：
+
+```xml
+<properties>
+    <java.version>17</java.version>
+    <spring-boot.version>3.2.5</spring-boot.version>
+</properties>
+
+<dependencyManagement>
+    <dependencies>
+        <!-- SpringBoot BOM（一次性导入所有版本） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-dependencies</artifactId>
+            <version>${spring-boot.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+
+        <!-- 内部模块（其他 module 引用时不用写 version） -->
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>mall-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>mall-domain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- 后面再加 dao / service / web -->
+    </dependencies>
+</dependencyManagement>
+```
+
+子模块引用时**不用写版本号**：
+
+```xml
+<!-- mall-dao/pom.xml -->
+<dependency>
+    <groupId>com.example</groupId>
+    <artifactId>mall-common</artifactId>
+    <!-- version 自动从父继承 -->
+</dependency>
+```
+
+## 第四步：依次建剩下的模块
+
+按 `mall-domain → mall-dao → mall-service → mall-web` 的顺序建，每个都 `New → Module → Maven`。
+
+每建一个：
+
+1. IDEA 自动在父 POM 加 `<module>xxx</module>`
+2. 手动把对应代码搬到新模块
+3. **被引用的模块**要在父 POM 的 `<dependencyManagement>` 里登记
+
+### mall-domain（实体类）
+
+只搬 entity、dto、enum，**不依赖任何东西**。
+
+```xml
+<!-- mall-domain/pom.xml -->
+<dependencies>
+    <dependency>
+        <groupId>com.baomidou</groupId>
+        <artifactId>mybatis-plus-annotation</artifactId>
+        <!-- version 自动从父继承 -->
+    </dependency>
+</dependencies>
+```
+
+### mall-dao（Mapper）
+
+依赖 `mall-domain`，mapper 接口和 XML：
+
+```xml
+<!-- mall-dao/pom.xml -->
+<dependencies>
+    <dependency>
+        <groupId>com.example</groupId>
+        <artifactId>mall-domain</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>com.baomidou</groupId>
+        <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+    </dependency>
+</dependencies>
+```
+
+### mall-service（业务层）
+
+依赖 `mall-dao`：
+
+```xml
+<!-- mall-service/pom.xml -->
+<dependencies>
+    <dependency>
+        <groupId>com.example</groupId>
+        <artifactId>mall-dao</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-tx</artifactId>
+    </dependency>
+</dependencies>
+```
+
+### mall-web（启动模块）
+
+依赖 `mall-service`，**启动类放这里**：
+
+```xml
+<!-- mall-web/pom.xml -->
+<dependencies>
+    <dependency>
+        <groupId>com.example</groupId>
+        <artifactId>mall-service</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+</dependencies>
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+        </plugin>
+    </plugins>
+</build>
+```
+
+## 第一个坑：循环依赖
+
+我图省事，把 `UserService` 放 `mall-web` 里，依赖 `mall-service` 的 `OrderService`。  
+结果编译报错：
+
+```
+[ERROR] mall-web → mall-service → mall-dao → mall-domain
+                                          
+The projects in the reactor contain a cyclic reference.
+```
+
+**A 依赖 B，B 又依赖 A**——Maven 直接拒绝。
+
+**解法**：把 `UserService` 移到 `mall-service` 模块去。**Service 永远在 service 模块**，Controller 永远在 web 模块。
+
+## 第二个坑：mapper.xml 找不到
+
+拆完之后启动项目，报：
+
+```
+Invalid bound statement (not found): com.example.mall.dao.UserMapper.selectById
+```
+
+mapper 接口找到了，**但 XML 没扫到**。
+
+**原因**：原本 `mall-dao` 模块里，mapper.xml 在 `src/main/resources/mappers/`。但 SpringBoot 默认**只扫启动类所在 module 的 resources**。
+
+**两种解决方式**：
+
+**方式 1**（推荐）：在 `mall-dao/src/main/resources/application.yml` 里配置：
+
+```yaml
+mybatis-plus:
+  mapper-locations: classpath*:mappers/**/*.xml
+```
+
+`classpath*:` 表示扫描**所有 module** 的 classpath。
+
+**方式 2**：在 `mall-dao` 的 `pom.xml` 里把 resources 打进 jar：
+
+```xml
+<build>
+    <resources>
+        <resource>
+            <directory>src/main/resources</directory>
+            <includes>
+                <include>**/*.xml</include>
+            </includes>
+        </resource>
+    </resources>
+</build>
+```
+
+我用的是方式 1，更直观。
+
+## 第三个坑：实体类扫描不到
+
+启动后注入 `UserMapper` 报 NoSuchBean：
+
+```
+Field userMapper in com.example.mall.service.UserServiceImpl required a bean of type 'UserMapper' that could not be found.
+```
+
+**原因**：`@MapperScan("com.example.mall.dao")` 我写在了 `mall-web` 的启动类上，但**实际 MyBatis-Plus 默认只扫启动类所在包**。
+
+我的项目结构：
+
+```
+com.example.mall          ← 启动类在这里
+com.example.mall.dao      ← mall-dao 模块的 mapper 在这
+```
+
+包名一致但跨 module。`@MapperScan` 默认只扫**同 module 的包**。
+
+**正解**：在 `mall-dao` 模块里加一个空的配置类：
+
+```java
+// mall-dao/src/main/java/com/example/mall/dao/DaoConfig.java
+@Configuration
+@MapperScan("com.example.mall.dao")
+public class DaoConfig {
+}
+```
+
+或者用 SpringBoot 3 的 `@AutoConfiguration`：
+
+```java
+// mall-dao/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
+com.example.mall.dao.DaoConfig
+```
+
+这样其他模块引用 `mall-dao` 时，配置自动生效。
+
+## 第四个坑：版本号飘了
+
+我在 `mall-dao` 里加 `<version>3.5.7</version>` 给 MyBatis-Plus，结果 `mall-service` 引另一个版本就冲突了。
+
+**根本原因**：版本号不应该散落在各子模块。**统一在父 POM 里管理**：
+
+```xml
+<!-- 父 pom.xml -->
+<properties>
+    <mybatis-plus.version>3.5.7</mybatis-plus.version>
+</properties>
+
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-bom</artifactId>
+            <version>${mybatis-plus.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+```
+
+子模块里**永远不写 version**：
+
+```xml
+<!-- 子 pom.xml -->
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+</dependency>
+```
+
+版本飘的问题少了一大半。
+
+## 拆完之后的好处
+
+### 1. 编译快
+
+之前改一行代码，整个项目重新编译要 30 秒。  
+拆完之后：
+
+- 改 entity → 只重编 domain
+- 改 mapper → 只重编 dao
+- 改 controller → 只重编 web
+
+**全量编译 5 秒，增量编译 1 秒内**。
+
+### 2. 复用方便
+
+`mall-common` 现在被另一个项目 `mall-cms` 引用了：
+
+```xml
+<dependency>
+    <groupId>com.example</groupId>
+    <artifactId>mall-common</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+</dependency>
+```
+
+返回包装类、异常类直接拿来用，**不用复制粘贴**。
+
+### 3. 权限控制更清晰
+
+主管 review 代码时，**改了 `mall-common` 必须经过架构组审批**，因为别的项目也用它。  
+但改 `mall-web` 随便改，影响范围只在自己项目内。
+
+## 我当时没学到的几个细节
+
+1. **`spring-boot-maven-plugin` 只放在启动模块**：我一开始每个 module 都加了，结果 maven 不知道怎么打包
+2. **循环依赖用 `mvn dependency:tree` 查**：`mvn dependency:tree -Dverbose` 能看到完整的依赖链
+3. **多模块下 application.yml 怎么放**：默认放在启动模块，**别每个模块都放一份**，会冲突
+4. **SpringBoot 3 改了 spring.factories**：`META-INF/spring.factories` → `META-INF/spring/*.imports`，老教程会误导
+
+## 一个偷懒但有效的方法
+
+如果你懒得一个个 module 建，**可以直接复制粘贴**：
+
+```bash
+# 在 mall-parent 目录下
+mkdir -p mall-common/src/main/java
+mkdir -p mall-domain/src/main/java
+mkdir -p mall-dao/src/main/java
+mkdir -p mall-service/src/main/java
+mkdir -p mall-web/src/main/java
+
+# 每个目录新建 pom.xml，写好 groupId / artifactId / parent
+# 最后在父 pom.xml 里加 <modules>
+```
+
+然后 IDEA 右键 `pom.xml` → `Add as Maven Project`，会自动识别。
+
+## 下一步
+
+下一篇写 **Git Flow 实战**——下学期项目要 3 个人协作，老师让我们用 Git Flow 工作流。之前只会 add/commit/push，分支管理一团糟。这篇记一下我们团队从"乱提交"到"规范协作"的过程。

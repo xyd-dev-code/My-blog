@@ -1,0 +1,495 @@
+---
+title: "亚信实习 Month 1 — 第一次用 Linux 查生产日志定位空指针"
+description: "导师给了一个 P2 工单：用户列表接口偶发 500。完整流程：堡垒机登录、grep + tail 查日志、定位空指针代码、看调用链、改、加 unit test、走 Git Flow 上线。"
+pubDate: 2026-01-13
+tags: ["实习", "亚信科技", "生产bug", "Linux"]
+---
+
+## 起因
+
+入职第三周，W 哥给我派了第一个工单。
+
+工单系统里 P2 级（影响部分用户但不阻塞主流程）：
+
+> **"用户列表接口偶发 500，错误码 500，约 1% 请求触发。最近一周出现 3 次。"**
+
+**第一次处理生产问题** —— 我电脑商城项目没部署过，没真排查过线上 bug。
+
+W 哥说：
+
+> "**别慌**。**按流程走**。**生产 bug 排查有固定套路**。"
+
+这篇记我从查日志到上线的全过程。
+
+## 第一步：拿工单细节
+
+工单系统里：
+
+```
+工单号: BUG-2025-12-28-001
+标题: 用户列表偶发 500
+重现: 用户 1003 调用 /api/users 时 1% 概率返回 500
+错误码: 500
+错误信息: 系统繁忙，请稍后再试
+时间: 12 月 25-28 日每天都有 1-3 次
+影响范围: 用户列表接口
+```
+
+**关键信息**：
+
+- **错误码 500**（系统异常，不是业务异常）
+- **偶发 1%**（说明不是稳定 bug，是某种条件触发）
+- **每天都有**（不是某次性的，**稳定存在**）
+
+W 哥补充：
+
+> "**先看监控** —— 接口响应时间、错误率。**再看日志** —— error 级别日志。**最后定位代码**。"
+
+## 第二步：登录堡垒机看监控
+
+公司生产环境**不能直接 SSH** —— 必须先连 **堡垒机（JumpServer）**，再从堡垒机跳到目标服务器。
+
+```bash
+ssh jump.xxxx.local
+# 输入 OTP 二次验证
+```
+
+堡垒机界面上选目标服务器（应用服务器）：
+
+```
+[主机列表]
+1. app-prod-01 (10.0.1.11)
+2. app-prod-02 (10.0.2.12)
+3. db-prod-01 (10.0.3.13)
+```
+
+选 1，进到应用服务器。
+
+W 哥说：
+
+> "**应用是多实例部署**，**每个实例的日志要分别看**。**错误可能只发生在一个实例上**。"
+
+## 第三步：看监控指标
+
+公司用 **Prometheus + Grafana**，W 哥给我开了 Grafana 临时只读权限。
+
+打开应用监控 dashboard：
+
+### /api/users 接口指标
+
+| 指标 | 数值 |
+|------|------|
+| QPS | 50 |
+| P50 响应时间 | 80ms |
+| P95 响应时间 | 200ms |
+| P99 响应时间 | 5000ms ← 注意这里 |
+| 错误率 | 1.0% ← 注意这里 |
+| 5xx 数量 | 12 次/天 |
+
+**关键发现**：
+
+- **P99 5 秒，远超 P95 的 200ms** —— 说明**有长尾请求**
+- **错误率 1%，刚好和工单说的"1% 概率"对上**
+
+W 哥说：
+
+> "**长尾请求 + 偶发错误** —— **典型空指针场景**。**某个字段为 null，某段代码没判空**。"
+
+## 第四步：日志定位
+
+应用日志在 `/var/log/app/biz-support-backend.log`。
+
+```bash
+cd /var/log/app
+ls -lh
+```
+
+```
+-rw-r--r-- 1 app app 500M Dec 28 10:00 biz-support-backend.log
+```
+
+一天一个文件，500MB，**日志量很大**。
+
+应用配置里日志输出格式：
+
+```xml
+<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [requestId=%X{requestId}] %-5level %logger{36} - %msg%n</pattern>
+```
+
+**关键** —— **每个请求有 requestId**。工单里应该带了 requestId。
+
+查工单，工单系统有个"日志快查"按钮，一键跳到对应的日志：
+
+```
+2025-12-28 09:23:41.234 [http-nio-8080-exec-15] [requestId=abc12345] ERROR
+c.x.b.u.controller.UserController - 用户列表接口异常
+
+java.lang.NullPointerException: Cannot invoke "String.length()" because "user.getUsername()" is null
+    at com.xxxx.biz.user.service.impl.UserServiceImpl.lambda$listUsers$0(UserServiceImpl.java:78)
+    at java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)
+    at java.util.ArrayList$ArrayListSpliterator.forEachRemaining(ArrayList.java:1708)
+    ...
+```
+
+**找到了！**
+
+**异常位置**：`UserServiceImpl.java:78` 行
+
+**错误信息**：`user.getUsername().length()` —— **`username` 为 null，调用 `.length()` 时 NPE**。
+
+**W 哥教我几个查日志的命令**：
+
+```bash
+# 看最近 100 行
+tail -100 biz-support-backend.log
+
+# 实时跟踪（看现场用）
+tail -f biz-support-backend.log
+
+# 找 ERROR 级别
+grep "ERROR" biz-support-backend.log | tail -20
+
+# 按 requestId 整链路查
+grep "requestId=abc12345" biz-support-backend.log
+
+# 找特定时间段
+sed -n '/2025-12-28 09:23:/,/2025-12-28 09:24:/p' biz-support-backend.log
+```
+
+我用了**最直接的方法** —— **工单里点"日志快查"**（公司平台功能），**直接定位**。
+
+## 第五步：定位代码
+
+回到工位，本地打开代码仓库，**切到 user 分支**：
+
+```bash
+git checkout develop
+git pull origin develop
+git checkout -b fix/nullpointer-user-list
+```
+
+打开 `UserServiceImpl.java`，看 78 行：
+
+```java
+@Override
+public List<UserVO> listUsers(UserQueryDTO query) {
+    // 1. 查数据库
+    List<User> users = userMapper.listByCondition(query);
+
+    // 2. 转 VO
+    List<UserVO> result = users.stream()
+        .map(user -> {
+            UserVO vo = new UserVO();
+            vo.setId(user.getId());
+            vo.setUsername(user.getUsername().length() > 0 ? user.getUsername() : "匿名");  // ← 78 行
+            vo.setEmail(user.getEmail());
+            // ...
+            return vo;
+        })
+        .collect(Collectors.toList());
+
+    return result;
+}
+```
+
+**问题**：78 行直接调用 `user.getUsername().length()`，**没判空**。
+
+**为啥 username 会 null**？
+
+W 哥解释了：
+
+> "**业务支撑系统是迁移过来的老系统**。**部分用户是从旧系统同步过来的**，**username 可能没值**。**新系统注册的用户 username 都有**。**所以才'偶发'** —— **老用户触发**。"
+
+**典型的数据兼容问题** —— 新老系统迁移最容易踩。
+
+## 第六个坑：直接 `if (xxx != null)` 是不够的
+
+我第一版修复：
+
+```java
+vo.setUsername(user.getUsername() != null ? user.getUsername() : "匿名");
+```
+
+**但 W 哥 review 时说**：
+
+> "**还有别的字段也是 string**。**email、phone 都可能 null**。**每个字段判空太丑**。"
+
+正解是写个 `BeanUtils` 工具类，或者用 `Optional` 包装：
+
+```java
+vo.setUsername(Optional.ofNullable(user.getUsername()).orElse("匿名"));
+vo.setEmail(Optional.ofNullable(user.getEmail()).orElse(""));
+vo.setPhone(Optional.ofNullable(user.getPhone()).orElse(""));
+```
+
+但更彻底的方案 —— **数据库迁移时给老数据补默认值**：
+
+```sql
+UPDATE user SET username = CONCAT('user_', id) WHERE username IS NULL;
+UPDATE user SET email = CONCAT('user_', id, '@local') WHERE email IS NULL;
+```
+
+**W 哥说这次先在代码层防御，**数据修复**交给 DBA**。
+
+## 第七个坑：加 unit test 验证
+
+W 哥要求："**改完代码要补单测**"。
+
+`UserServiceImplTest.java`：
+
+```java
+@SpringBootTest
+class UserServiceImplTest {
+
+    @Autowired
+    private UserService userService;
+
+    @MockBean
+    private UserMapper userMapper;
+
+    @Test
+    void listUsers_shouldHandleNullUsername() {
+        // 准备：mock 一个 username 为 null 的用户
+        User user = new User();
+        user.setId(1003L);
+        user.setUsername(null);  // 关键：username 是 null
+        user.setEmail("test@local");
+        when(userMapper.listByCondition(any())).thenReturn(List.of(user));
+
+        // 执行
+        List<UserVO> result = userService.listUsers(new UserQueryDTO());
+
+        // 断言
+        assertEquals(1, result.size());
+        assertEquals("匿名", result.get(0).getUsername());  // 不抛异常，返回"匿名"
+    }
+
+    @Test
+    void listUsers_shouldHandleNormalUser() {
+        User user = new User();
+        user.setId(1L);
+        user.setUsername("alice");
+        user.setEmail("alice@x.com");
+        when(userMapper.listByCondition(any())).thenReturn(List.of(user));
+
+        List<UserVO> result = userService.listUsers(new UserQueryDTO());
+
+        assertEquals(1, result.size());
+        assertEquals("alice", result.get(0).getUsername());
+    }
+}
+```
+
+跑测试：
+
+```bash
+mvn test -Dtest=UserServiceImplTest
+```
+
+```
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+**两个测试都过**。
+
+**W 哥强调**：
+
+> "**单测不是为了'过覆盖率'**。**是验证你的修复确实生效**。**以后别人改代码，**单测能保证不破坏现有逻辑**。"
+
+## 第八个坑：走 Git Flow 上线
+
+**重点** —— 不能直接 push develop。
+
+### 提交代码
+
+```bash
+git add .
+git commit -m "fix: 用户列表接口空指针问题
+
+用户表是从老系统迁移过来的，部分用户 username 为 null。
+原代码直接调用 user.getUsername().length() 会抛 NPE。
+
+修复：用 Optional 处理 null，fallback 为"匿名"。
+
+测试：UserServiceImplTest.listUsers_shouldHandleNullUsername
+日志：见 BUG-2025-12-28-001"
+```
+
+### 推分支并发 MR
+
+```bash
+git push origin fix/nullpointer-user-list
+```
+
+在 GitLab 上 **New Merge Request**：
+
+- Source: `fix/nullpointer-user-list`
+- Target: `develop`
+- Title: `fix(user): 用户列表接口空指针问题`
+- Description 引用工单号、贴测试截图
+
+指定 Reviewer：**W 哥** + **组长老周**。
+
+### CI 自动跑
+
+提交 MR 后，**GitLab CI 自动跑**：
+
+1. 编译
+2. 单元测试
+3. SonarQube 扫描
+
+**大公司都用这套流水线**。
+
+我等的 5 分钟，**全绿**：
+
+```
+✓ Build success
+✓ Unit tests passed (28 tests, 0 failures)
+✓ SonarQube: 0 new bugs, 0 new vulnerabilities
+```
+
+### Code Review
+
+W 哥 review：
+
+> "**修复方式 OK**。**单测覆盖到了**。**但'匿名'两个字为什么不是空字符串**？"
+
+我答：
+
+> "**前端展示需要明确文案**。**空字符串会让用户列表出现空昵称**，**'匿名'更友好**。"
+
+W 哥：
+
+> "**OK**。**merged**。"
+
+### Merge 到 develop
+
+```bash
+git checkout develop
+git pull origin develop
+# 通过 MR merge，git log 会记一笔
+```
+
+### 发布到预发环境
+
+公司的发布系统是 **Jenkins + 自研发布平台**：
+
+1. Merge to develop → 自动构建 **dev 环境镜像**
+2. 触发发版工单 → 选镜像版本 → 发布到 **预发环境**
+3. 预发环境自动跑 **冒烟测试**
+4. 冒烟通过 → 触发 **生产工单** → **人工确认后发到生产**
+
+我前面这些都跑通后，**最后一步**：
+
+```bash
+# 选 release 分支（develop 已经稳定一段时间后）
+git checkout release/2026-01-15
+git merge fix/nullpointer-user-list
+git push origin release/2026-01-15
+```
+
+发布平台选 release 包 → 部署生产 → **金丝雀发布（10% 流量）** → **全量发布**。
+
+## 第九个坑：金丝雀期间没看监控
+
+金丝雀**前 5 分钟**我盯着监控看。
+
+**没有新错误**。
+
+```
+P99 响应时间: 120ms
+错误率: 0.05% （降低 95%）
+5xx 数量: 1 次/小时 （之前 12 次/天）
+```
+
+W 哥说：
+
+> "**金丝雀半小时稳定再全量**。**半小时后再看一眼监控**。"
+
+半小时后，**确认稳定**，**点了全量发布**。
+
+## 第十个坑：写事故复盘文档
+
+W 哥让我**在工单里写事故复盘**：
+
+```
+事故复盘 - BUG-2025-12-28-001
+
+## 现象
+用户列表接口 P99 5 秒，1% 请求返回 500。
+每周发生 3 次左右。
+
+## 根因
+用户表是迁移老系统的历史数据，部分用户 username 为 null。
+UserServiceImpl.listUsers() 第 78 行代码未做 null 防御。
+
+## 修复
+- 代码：用 Optional 处理 null
+- 测试：补充单元测试覆盖 null 场景
+- 数据：DBA 后续补数据（进行中）
+
+## 验证
+- 单元测试通过
+- 金丝雀 30 分钟监控：P99 120ms，错误率 0.05%
+
+## 反思
+1. 数据迁移场景必须考虑字段兼容性
+2. 老系统字段值不可信，业务代码必须有防御
+3. 单元测试要覆盖 null / 边界场景
+4. 建议加 SonarQube 的 S2259 规则（null 检测）
+```
+
+W 哥看完说：
+
+> "**复盘写得很清楚**。**根因 + 修复 + 反思都有**。**以后遇到类似问题可以参考**。"
+
+## 第一次修生产 bug 的几个体会
+
+### 1. 生产 bug 排查有"流程"
+
+W 哥总结的标准流程：
+
+```
+1. 看监控（Grafana / Prometheus）
+2. 查日志（error 级别 + requestId 定位）
+3. 定位代码
+4. 写修复 + 单元测试
+5. 走 Git Flow + Code Review
+6. 金丝雀发布 + 监控观察
+7. 写事故复盘
+```
+
+**每一步都不能跳**。
+
+### 2. 日志 requestId 是真有用
+
+**没有 requestId 我没法定位这次 bug** —— 一天 500MB 日志，**靠时间戳根本找不准**。
+
+**这是公司基础设施的好处** —— **每个细节都有意义**。
+
+### 3. 单元测试不是"应付检查"
+
+**单测确实在保护代码** —— 我写的这次，**改完代码我也用单测验证了才敢上线**。
+
+### 4. 不要照抄线上代码
+
+我电脑商城早期版本也有 `user.getUsername().length()` 的写法 —— **没判空**。
+
+W 哥说：
+
+> "**公司代码一开始也是这样写的**，**后来出 bug 才加防御**。**你以后写代码** —— **所有字段都假设它可能 null**。"
+
+### 5. Git Flow 是"团队协作"
+
+我一个人开发时 Git Flow 看着多余，**但团队协作时是必要的**：
+
+- **不阻塞别人开发**（feature 分支独立）
+- **代码有 reviewer**（防止低级错误）
+- **上线有节奏**（release 分支冻结）
+
+**这次实习学到最实用的技能 —— 不是 Java，是 Git Flow**。
+
+## 下一步
+
+下一篇准备写 **亚信实习 Month 2 — 第一次做慢 SQL 优化：定位慢查询、加索引、对比测试**。导师让我看慢 SQL 日志、找最慢的几条、用 EXPLAIN 分析、加索引、看效果。

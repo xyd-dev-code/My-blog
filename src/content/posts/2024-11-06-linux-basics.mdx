@@ -1,0 +1,530 @@
+---
+title: "Linux 基础运维 — 第一次连服务器装 JDK 跑项目的全过程"
+description: "之前只在 Windows 上写代码，第一次连阿里云服务器装 Java 环境、传 jar 包、跑项目。每个命令具体什么意思、当时踩的坑、改了什么配置。"
+pubDate: 2024-11-06
+tags: ["Linux", "运维", "笔记", "Java"]
+---
+
+## 起因
+
+下学期项目要部署。老师说"服务器是 Linux 的，自己装 Java 环境"。
+
+我之前只在 Windows 上写过代码，**连 SSH 都没用过**。花了 2 天才把第一个 SpringBoot jar 跑起来，这篇把全过程记下来。
+
+## 第一步：拿到服务器
+
+阿里云买了个学生服务器：
+
+```
+CPU: 2 核
+内存: 2 GB
+系统: CentOS 7.9
+带宽: 1 Mbps
+公网 IP: 8.130.xxx.xxx
+```
+
+控制台拿到：
+
+- **公网 IP**：SSH 连接用
+- **root 密码**：登录用
+- **SSH 端口**：默认 22
+
+## 第二步：用 SSH 连上去
+
+Windows 上用 PowerShell：
+
+```bash
+ssh root@8.130.xxx.xxx
+```
+
+第一次连会问：
+
+```
+The authenticity of host '8.130.xxx.xxx' can't be established.
+ED25519 key fingerprint is SHA256:xxxxxx.
+Are you sure you want to continue connecting (yes/no)?
+```
+
+输入 `yes`，然后输密码。
+
+**注意**：密码输入时光标不动（Linux 隐藏密码），输完直接回车。
+
+连上后：
+
+```
+[root@iZxxxxxx ~]#
+```
+
+**看到 `#` 说明是 root 用户**。
+
+## 第三步：装 JDK
+
+服务器默认没装 Java。先查一下：
+
+```bash
+java -version
+# -bash: java: command not found
+```
+
+确认没装。
+
+### 1. 用 yum 装 OpenJDK（最简单）
+
+```bash
+yum list java-17*  # 列出可装的 JDK 17
+yum install -y java-17-openjdk java-17-openjdk-devel
+```
+
+等几分钟装完。
+
+**验证**：
+
+```bash
+java -version
+# openjdk version "17.0.9" 2024-10-15
+# OpenJDK Runtime Environment (build 17.0.9+9)
+# OpenJDK 64-Bit Server VM (build 17.0.9+9, mixed mode)
+```
+
+### 2. 配 JAVA_HOME
+
+虽然 yum 装的 JDK 能直接用，但**很多工具（Maven、Gradle）依赖 JAVA_HOME 环境变量**。
+
+查 JDK 安装路径：
+
+```bash
+which java
+# /usr/bin/java
+
+# 真实路径
+readlink -f $(which java)
+# /usr/lib/jvm/java-17-openjdk-17.0.9.0.9-2.el7_9.x86_64/bin/java
+```
+
+我的 JDK 路径：`/usr/lib/jvm/java-17-openjdk-17.0.9.0.9-2.el7_9.x86_64`
+
+**配置环境变量**：
+
+```bash
+vim /etc/profile
+```
+
+在文件最后加：
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-17.0.9.0.9-2.el7_9.x86_64
+export PATH=$PATH:$JAVA_HOME/bin
+export CLASSPATH=.:$JAVA_HOME/lib
+```
+
+`source` 让配置生效：
+
+```bash
+source /etc/profile
+```
+
+验证：
+
+```bash
+echo $JAVA_HOME
+# /usr/lib/jvm/java-17-openjdk-17.0.9.0.9-2.el7_9.x86_64
+```
+
+### 我当时踩的坑
+
+**坑 1：复制 JAVA_HOME 路径漏了版本号**
+
+我之前以为是 `/usr/lib/jvm/java-17-openjdk`，少了具体的版本目录。
+
+结果 Maven 找不到 javac：
+
+```
+Error: JAVA_HOME is not defined correctly.
+```
+
+**正解**：必须包含版本号的完整路径。
+
+**坑 2：vim 进去不知道怎么退出**
+
+第一次用 vim，按了 `Ctrl+C` 没反应，按了 `Esc` 还是不动。
+
+**正解**：
+
+- 进入编辑模式：按 `i`
+- 退出编辑模式：按 `Esc`
+- 保存退出：`:wq`
+- 不保存退出：`:q!`
+
+## 第四步：装 Maven
+
+```bash
+cd /opt
+wget https://archive.apache.org/dist/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz
+tar -xzvf apache-maven-3.9.6-bin.tar.gz
+```
+
+配环境变量：
+
+```bash
+vim /etc/profile
+```
+
+追加：
+
+```bash
+export MAVEN_HOME=/opt/apache-maven-3.9.6
+export PATH=$PATH:$MAVEN_HOME/bin
+```
+
+生效：
+
+```bash
+source /etc/profile
+mvn -version
+# Apache Maven 3.9.6 ...
+```
+
+### 配置 Maven 镜像（国内加速）
+
+```bash
+mkdir -p ~/.m2
+vim ~/.m2/settings.xml
+```
+
+新建 `settings.xml`：
+
+```xml
+<settings>
+  <mirrors>
+    <mirror>
+      <id>aliyun</id>
+      <mirrorOf>*</mirrorOf>
+      <url>https://maven.aliyun.com/repository/public</url>
+    </mirror>
+  </mirrors>
+</settings>
+```
+
+不配这个，下载依赖会非常慢（连国外）。
+
+## 第五步：把项目打包成 jar
+
+在本地 IDEA 里：
+
+```bash
+mvn clean package -DskipTests
+```
+
+`target/` 下会有 `xxx.jar`，比如 `mall-1.0.0.jar`。
+
+**SpringBoot 的 jar 是"可执行 jar"**——包含所有依赖，`java -jar` 直接跑。
+
+## 第六步：把 jar 传到服务器
+
+### 方法 1：scp（最简单）
+
+本地 PowerShell：
+
+```bash
+scp target/mall-1.0.0.jar root@8.130.xxx.xxx:/opt/mall/
+```
+
+会提示输密码。**进度条走完就传好了**。
+
+### 方法 2：rz / sz（需要装 lrzsz）
+
+服务器装：
+
+```bash
+yum install -y lrzsz
+```
+
+上传文件：
+
+```bash
+cd /opt/mall
+rz   # 弹窗选本地文件
+```
+
+下载文件：
+
+```bash
+sz filename   # 弹窗选保存位置
+```
+
+### 我选 scp 的原因
+
+- scp 用 SSH 通道，**安全**
+- 不需要在服务器装额外工具
+- 命令简单
+
+## 第七步：启动项目
+
+```bash
+cd /opt/mall
+java -jar mall-1.0.0.jar
+```
+
+**但这样前台运行**——关掉 SSH 连接，进程就被 kill。
+
+### 后台启动（nohup）
+
+```bash
+nohup java -jar mall-1.0.0.jar > app.log 2>&1 &
+```
+
+参数解释：
+
+- `nohup`：忽略 SIGHUP 信号，关 SSH 也不死
+- `> app.log`：标准输出到 `app.log`
+- `2>&1`：标准错误也输出到 `app.log`
+- `&`：后台运行
+
+启动后：
+
+```
+[1] 12345   ← 进程号 PID
+```
+
+**记住 PID**，后面要 kill。
+
+### 看日志
+
+```bash
+tail -f app.log
+```
+
+`-f` 实时跟踪，`Ctrl+C` 退出。
+
+### 验证项目跑起来
+
+```bash
+curl http://localhost:8080/hello
+# Hello World!
+```
+
+或者用浏览器访问 `http://8.130.xxx.xxx:8080/hello`。
+
+## 第八个坑：外网访问不到
+
+我以为部署完浏览器就能访问，结果 404。
+
+**原因**：阿里云**安全组**默认只开放 22（SSH）和 80（HTTP）端口，**8080 没开放**。
+
+**解决**：
+
+阿里云控制台 → 云服务器 ECS → 安全组 → 配置规则 → 手动添加：
+
+```
+端口范围：8080/8080
+授权对象：0.0.0.0/0
+协议：TCP
+```
+
+或者**只允许特定 IP 访问**（更安全）：
+
+```
+授权对象：你的 IP/32
+```
+
+### 如果是测试用，可以关防火墙
+
+```bash
+systemctl stop firewalld   # 临时关
+systemctl disable firewalld  # 永久关
+```
+
+> **生产环境别关防火墙**，按端口开放。
+
+## 第九个坑：数据库连不上
+
+项目跑起来了，但查询报：
+
+```
+Communications link failure
+```
+
+**原因 3 个可能**：
+
+1. MySQL 没装
+2. MySQL 没启动
+3. MySQL 没开远程访问
+
+### 装 MySQL
+
+```bash
+# CentOS 7 默认源里没 MySQL，要加源
+yum localinstall -y https://dev.mysql.com/get/mysql80-community-release-el7-3.noarch.rpm
+yum install -y mysql-community-server
+```
+
+### 启动 MySQL
+
+```bash
+systemctl start mysqld
+systemctl enable mysqld  # 开机自启
+```
+
+查初始密码：
+
+```bash
+grep 'temporary password' /var/log/mysqld.log
+```
+
+登录：
+
+```bash
+mysql -u root -p
+# 输初始密码
+```
+
+### 改密码 + 开远程访问
+
+```sql
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'YourNewPass1!';
+CREATE USER 'root'@'%' IDENTIFIED BY 'YourNewPass1!';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+```
+
+`'root'@'%'` 表示允许任何 IP 用 root 登录。
+
+**生产环境别这么干**——应该建应用专用账号，只给必要权限。
+
+### 改项目配置
+
+`application.yml`：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/mall?serverTimezone=Asia/Shanghai
+    username: root
+    password: YourNewPass1!
+```
+
+## 第十步：常用运维命令
+
+### 看进程
+
+```bash
+ps aux | grep java
+# 看 java 相关进程
+ps -ef | grep mall
+```
+
+### 杀进程
+
+```bash
+kill 12345        # 优雅退出
+kill -9 12345     # 强制 kill
+```
+
+### 看端口占用
+
+```bash
+netstat -tlnp | grep 8080
+# 或
+ss -tlnp | grep 8080
+```
+
+### 看内存
+
+```bash
+free -h
+```
+
+```
+              total        used        free      shared  buff/cache   available
+Mem:          1.8Gi       512Mi       200Mi       1Mi       1.1Gi       1.1Gi
+```
+
+### 看磁盘
+
+```bash
+df -h
+```
+
+### 看 CPU
+
+```bash
+top
+```
+
+按 `1` 看每个 CPU 核心，按 `q` 退出。
+
+## 我学会的部署脚本
+
+```bash
+#!/bin/bash
+# deploy.sh - 一键部署脚本
+
+APP_NAME=mall
+APP_JAR=/opt/mall/mall-1.0.0.jar
+APP_LOG=/opt/mall/app.log
+
+# 1. 找旧进程
+PID=$(ps aux | grep "$APP_NAME" | grep -v grep | awk '{print $2}')
+if [ -n "$PID" ]; then
+    echo "停止旧进程: $PID"
+    kill $PID
+    sleep 5
+fi
+
+# 2. 启动新进程
+echo "启动新进程..."
+nohup java -jar $APP_JAR > $APP_LOG 2>&1 &
+NEW_PID=$!
+echo "新进程: $NEW_PID"
+
+# 3. 看启动日志
+sleep 10
+tail -20 $APP_LOG
+```
+
+部署时：
+
+```bash
+# 1. 上传新 jar
+scp target/mall-1.0.0.jar root@8.130.xxx.xxx:/opt/mall/
+
+# 2. 跑脚本
+ssh root@8.130.xxx.xxx "bash /opt/mall/deploy.sh"
+```
+
+## 几个让我当时懵的概念
+
+### 1. 前台进程 vs 后台进程
+
+```bash
+java -jar xxx.jar     # 前台：占终端，Ctrl+C 退出
+nohup java -jar xxx.jar &   # 后台：释放终端，关 SSH 也不死
+```
+
+### 2. 标准输出 vs 标准错误
+
+```
+0  stdin   标准输入
+1  stdout  标准输出
+> 2>&1  把 stderr 也输出到 stdout 同一个文件
+```
+
+### 3. `~` 和 `$HOME`
+
+```bash
+~          # 当前用户的 home 目录（root 是 /root）
+$HOME      # 同上
+```
+
+## 我学会的运维铁律
+
+1. **永远不直接用 root 跑应用**——建专用用户
+2. **生产环境用 systemctl 管理进程**——开机自启、异常重启
+3. **日志要定期清理**——`logrotate` 配置滚动
+4. **SSH 改密钥登录**——别用密码，**容易被扫**
+5. **防火墙只开必要端口**——`firewalld` / `ufw`
+6. **数据库不要暴露外网**——只让应用服务器访问
+
+## 下一步
+
+下一篇准备写 **MySQL 索引底层 — B+ 树可视化实验**。上次的索引文章讲了"怎么用"，这次搞清楚"为什么 B+ 树快"。拿 10 万数据，看查询为啥从 2 秒变成 2 毫秒。

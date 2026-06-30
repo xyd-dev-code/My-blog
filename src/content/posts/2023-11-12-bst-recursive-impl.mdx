@@ -1,0 +1,240 @@
+---
+title: "二叉搜索树实战 — 插入/查找/删除的递归与非递归"
+description: "BST 作业踩坑实录：删除节点的 3 种情况、为什么用前驱/后继填补、递归转非递归的套路。"
+pubDate: 2023-11-12
+tags: ["C++", "数据结构", "二叉树", "笔记"]
+---
+
+## 起因
+
+数据结构课的第二次大作业：实现一棵二叉搜索树（BST），要求支持：
+
+- 插入 `insert`
+- 查找 `find`
+- 删除 `remove`（重点）
+- 三种遍历：前序、中序、后序
+- 层序遍历（用队列）
+
+`insert` 和 `find` 太简单，10 分钟搞定。真正卡我两天的是 **`remove` 的"度为 2 的节点"**怎么处理。这篇把整个思考过程记下来。
+
+## BST 的性质
+
+写之前先把定义默写一遍（怕考试忘）：
+
+> 对于 BST 的任意节点 `N`：
+> - `N` 的左子树所有节点值 < `N.val`
+> - `N` 的右子树所有节点值 > `N.val`
+> - 左右子树也都是 BST
+
+**重要推论**：**BST 的中序遍历是有序的**。这个性质后面删除时要用到。
+
+## 节点定义
+
+```cpp
+struct TreeNode {
+    int val;
+    TreeNode* left;
+    TreeNode* right;
+    TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}
+};
+
+class BST {
+private:
+    TreeNode* root_;
+public:
+    BST() : root_(nullptr) {}
+
+    void insert(int x) { root_ = insertRec(root_, x); }
+    bool find(int x) const { return findRec(root_, x); }
+    void remove(int x) { root_ = removeRec(root_, x); }
+    // ...
+};
+```
+
+注意我把递归函数的返回值设成 `TreeNode*`——这是**简化递归套路**的关键，下面会讲。
+
+## 插入：递归版
+
+```cpp
+TreeNode* insertRec(TreeNode* node, int x) {
+    if (!node) return new TreeNode(x);  // 递归出口：找到空位
+
+    if (x < node->val)
+        node->left = insertRec(node->left, x);
+    else if (x > node->val)
+        node->right = insertRec(node->right, x);
+    // x == node->val 不插入（视业务需求）
+
+    return node;
+}
+```
+
+> **套路**：递归函数的返回值是"**这一层处理完之后，子树的新根节点**"。因为插入可能改变子树根（比如插入到左子树，但左子树根不变——这里返回原 node）。删除时这个套路更有用。
+
+## 查找：递归版
+
+```cpp
+bool findRec(TreeNode* node, int x) const {
+    if (!node) return false;
+    if (x == node->val) return true;
+    if (x < node->val) return findRec(node->left, x);
+    return findRec(node->right, x);
+}
+```
+
+平均 O(log n)，最坏 O(n)（退化成链表时）。
+
+## 删除：三种情况，重点中的重点
+
+这是作业的核心，分三种情况：
+
+### 情况 1：叶子节点（左右都空）
+
+直接 `delete`，返回 `nullptr`。
+
+### 情况 2：只有一个孩子
+
+返回那个孩子，绕过当前节点。
+
+```cpp
+if (!node->left) return node->right;
+if (!node->right) return node->left;
+```
+
+### 情况 3：两个都有（最难）
+
+这是卡我两天的部分。
+
+**思路**：找到 node 的**中序后继**（右子树最小值）或**中序前驱**（左子树最大值），用它的值**覆盖**当前 node，然后递归删除那个前驱/后继。
+
+为什么可以这样？因为 BST 的中序遍历有序，前驱/后继是"和 node 最接近的节点"，用它的值替代不会破坏 BST 性质。
+
+```cpp
+TreeNode* removeRec(TreeNode* node, int x) {
+    if (!node) return nullptr;
+
+    if (x < node->val) {
+        node->left = removeRec(node->left, x);
+    } else if (x > node->val) {
+        node->right = removeRec(node->right, x);
+    } else {
+        // 找到目标节点
+        if (!node->left) {
+            TreeNode* right = node->right;
+            delete node;
+            return right;  // 情况 1 和 2 合并
+        }
+        if (!node->right) {
+            TreeNode* left = node->left;
+            delete node;
+            return left;
+        }
+
+        // 情况 3：两个子树都在
+        // 找右子树的最小值（中序后继）
+        TreeNode* successor = findMin(node->right);
+        node->val = successor->val;          // 用后继的值覆盖
+        node->right = removeRec(node->right, successor->val);  // 删掉后继
+    }
+    return node;
+}
+
+TreeNode* findMin(TreeNode* node) const {
+    while (node->left) node = node->left;
+    return node;
+}
+```
+
+### 我当时犯的低级错误
+
+**错误 1**：忘了把后继真的删掉。
+
+我一开始直接 `node->val = successor->val; return node;`，结果右子树里多了一个重复值的节点。
+
+**修正**：`node->right = removeRec(node->right, successor->val);` —— 这一步会把后继节点从右子树里真正删掉。
+
+**错误 2**：前驱/后继没选对。
+
+我误以为"用左子树最大值当后继"——其实左子树最大是**前驱**。我当时画了张图才搞清：
+
+```
+        50
+       /  \
+      30   70
+     /  \
+    20   40
+```
+
+- 删 50：左子树最大是 40（前驱），右子树最小是 70（后继）。两个都可以用。
+- 用后继：变成 70 / 30 / 70 / （原来的 70 子树），然后删原 70。
+- 用前驱：变成 40 / 30 / 20 / 70，然后删原 40。
+
+两种方法都行，**结果树结构不一样**但都是合法 BST。作业里只要选一种就行。
+
+## 递归转非递归：套路记一下
+
+作业加分项：用栈/队列把递归版改成非递归版。套路是**用栈模拟系统调用**。
+
+```cpp
+// 非递归插入（用栈记录路径）
+void insertIter(int x) {
+    if (!root_) {
+        root_ = new TreeNode(x);
+        return;
+    }
+    TreeNode* cur = root_;
+    TreeNode* parent = nullptr;
+    std::stack<TreeNode*> path;
+
+    while (cur) {
+        parent = cur;
+        path.push(cur);
+        if (x < cur->val) cur = cur->left;
+        else if (x > cur->val) cur = cur->right;
+        else return;
+    }
+
+    TreeNode* newNode = new TreeNode(x);
+    if (x < parent->val) parent->left = newNode;
+    else parent->right = newNode;
+}
+```
+
+**核心**：用一个栈（或手动维护 `parent` 指针）记录从根到目标位置的路径。  
+但删除的非递归版要复杂得多——情况 3 要找到后继的父节点，光栈不够，得**双指针**或者把后继路径全记下来。作业我没写非递归删除，太累了。
+
+## 层序遍历：广度优先
+
+用 BFS，队列实现：
+
+```cpp
+void levelOrder() const {
+    if (!root_) return;
+    std::queue<TreeNode*> q;
+    q.push(root_);
+    while (!q.empty()) {
+        TreeNode* cur = q.front();
+        q.pop();
+        std::cout << cur->val << " ";
+        if (cur->left) q.push(cur->left);
+        if (cur->right) q.push(cur->right);
+    }
+}
+```
+
+测试：
+
+```
+插入顺序: 50, 30, 70, 20, 40, 60, 80
+层序: 50 30 70 20 40 60 80
+```
+
+## 一些有用的性质（怕考试忘）
+
+1. **BST 的中序遍历是有序序列**——可以用来验证一棵树是不是 BST。
+2. **BST 的查找/插入/删除平均 O(log n)，最坏 O(n)**——最坏是退化成链表（比如顺序插入 1 2 3 4 5）。
+3. **平衡 BST**（AVL、红黑树）通过旋转保证 O(log n)，Java 的 `TreeMap` 用红黑树。
+
+## 下一步
+
+下一篇准备写**排序算法总结**——冒泡、选择、插入、快排、归并，各自的稳定性和适用场景。下学期的算法课要用，先自己理一遍。

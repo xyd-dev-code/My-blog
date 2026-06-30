@@ -1,0 +1,480 @@
+---
+title: "JUnit 入门 — 给加法器写第一个单元测试的全过程"
+description: "软件测试课第一次上机：用 JUnit 5 给一个简单的 Calculator 类写单元测试。从加依赖、@Test 注解、assertEquals，到 IDEA 里的小绿条，一步步来。"
+pubDate: 2024-04-22
+tags: ["JUnit", "单元测试", "笔记", "Java"]
+---
+
+## 起因
+
+上节课写了等价类划分的用例，**全是 Excel 表格**。
+
+这节课老师要求用代码实现——给一个 `Calculator` 类写单元测试。我之前完全没接触过测试代码，以为很玄乎，结果发现：
+
+> **JUnit 测试本质上就是"调用方法 + 断言结果对不对"，没有魔法。**
+
+这篇把第一次跑通测试的过程记下来。
+
+## 第一步：被测代码
+
+老师给了一个超简单的类：
+
+```java
+public class Calculator {
+    public int add(int a, int b) {
+        return a + b;
+    }
+
+    public int divide(int a, int b) {
+        if (b == 0) {
+            throw new IllegalArgumentException("除数不能为 0");
+        }
+        return a / b;
+    }
+}
+```
+
+就两个方法：`add` 和 `divide`。我们的任务是**写测试代码验证这两个方法**。
+
+## 第二步：加 JUnit 5 依赖
+
+新建 Maven 项目（IDEA：`File → New → Project → Maven`）。
+
+`pom.xml` 加 JUnit 5 依赖：
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter</artifactId>
+        <version>5.10.2</version>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+```
+
+注意几个点：
+
+- `junit-jupiter` 是聚合依赖，会把 `junit-jupiter-api`、`junit-jupiter-engine`、`junit-jupiter-params` 全部引入
+- `<scope>test</scope>` 表示只在测试阶段使用，**不会打进生产 jar**
+
+JUnit 5 和 JUnit 4 的包名完全不同：
+
+- JUnit 4：`org.junit.Test`
+- JUnit 5：`org.junit.jupiter.api.Test`
+
+**新项目无脑用 JUnit 5**。
+
+## 第三步：写第一个测试方法
+
+Maven 项目的测试代码放 `src/test/java` 下：
+
+```
+src/
+├── main/java/com/example/Calculator.java
+└── test/java/com/example/CalculatorTest.java  ← 测试代码放这
+```
+
+新建 `CalculatorTest.java`：
+
+```java
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+
+class CalculatorTest {
+
+    @Test
+    void add_两个正数相加_返回正确结果() {
+        // Arrange（准备）
+        Calculator calc = new Calculator();
+
+        // Act（执行）
+        int result = calc.add(2, 3);
+
+        // Assert（断言）
+        assertEquals(5, result);
+    }
+}
+```
+
+跑一下：
+
+- IDEA 里点方法左边的绿色三角 → Run 'add_两个正数相加_返回正确结果()'
+- 或者右键类名 → Run 'CalculatorTest'
+
+**第一次看到 IDEA 里出现绿色的小对勾**，感觉还挺爽的：
+
+```
+Tests passed: 1 of 1
+```
+
+### 我当时卡住的点
+
+**1. 类名和方法名必须 public 吗？**
+
+JUnit 5：**不用 public**。`class CalculatorTest` 和 `void test()` 都行。
+
+JUnit 4：**必须 public**。
+
+```java
+// JUnit 4 - 老代码
+public class CalculatorTest {
+    @Test
+    public void testAdd() { }  // public 必须
+}
+
+// JUnit 5 - 新代码
+class CalculatorTest {
+    @Test
+    void add_两个正数相加() { }  // public 不需要
+}
+```
+
+**2. 方法名可以用中文吗？**
+
+可以！方法名只是个标识符，**JUnit 不在乎叫什么**。
+
+中文方法名好处：看测试报告时一眼就懂在测什么。
+
+```
+✓ add_两个正数相加_返回正确结果()
+✓ add_负数相加_返回正确结果()
+✓ divide_除以零_抛出异常()
+```
+
+比 `testAdd1` `testAdd2` 友好多了。
+
+## 第四步：覆盖多种情况
+
+按上节课学的等价类划分，给 `add` 写多个测试：
+
+```java
+class CalculatorTest {
+
+    private final Calculator calc = new Calculator();
+
+    @Test
+    void add_两个正数() {
+        assertEquals(5, calc.add(2, 3));
+    }
+
+    @Test
+    void add_两个负数() {
+        assertEquals(-5, calc.add(-2, -3));
+    }
+
+    @Test
+    void add_正数加负数() {
+        assertEquals(0, calc.add(2, -2));
+    }
+
+    @Test
+    void add_零加零() {
+        assertEquals(0, calc.add(0, 0));
+    }
+
+    @Test
+    void add_大数相加() {
+        assertEquals(2_000_000_000, calc.add(1_000_000_000, 1_000_000_000));
+    }
+}
+```
+
+跑一下：
+
+```
+Tests passed: 5 of 5
+```
+
+## 第五步：测试异常
+
+`divide` 在除数为 0 时抛异常，怎么测？
+
+**错误写法**：
+
+```java
+@Test
+void divide_除以零() {
+    calc.divide(10, 0);  // 会抛异常，但测试方法不知道怎么处理
+}
+```
+
+这会导致测试方法本身挂掉，**不是绿色对勾，是红色叉**。
+
+**正确写法**：
+
+```java
+@Test
+void divide_除以零_抛出IllegalArgumentException() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> calc.divide(10, 0)
+    );
+}
+```
+
+`assertThrows` 断言：执行这段 lambda，**必须抛指定类型的异常**，否则测试失败。
+
+跑一下，绿色对勾 ✅。
+
+### 我当时想加的细节
+
+我想测**异常信息**是不是"除数不能为 0"，但 `assertThrows` 只验证类型不验证消息。
+
+**正解**：用 `assertThrows` + `getMessage()`：
+
+```java
+@Test
+void divide_除以零_异常信息正确() {
+    IllegalArgumentException ex = assertThrows(
+        IllegalArgumentException.class,
+        () -> calc.divide(10, 0)
+    );
+    assertEquals("除数不能为 0", ex.getMessage());
+}
+```
+
+## 第六步：完整的 CalculatorTest
+
+```java
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+
+class CalculatorTest {
+
+    private final Calculator calc = new Calculator();
+
+    @Test
+    void add_两个正数相加() {
+        assertEquals(5, calc.add(2, 3));
+    }
+
+    @Test
+    void add_正数加负数() {
+        assertEquals(0, calc.add(2, -2));
+    }
+
+    @Test
+    void add_零加零() {
+        assertEquals(0, calc.add(0, 0));
+    }
+
+    @Test
+    void add_两个大数相加_不溢出() {
+        assertEquals(2_000_000_000, calc.add(1_000_000_000, 1_000_000_000));
+    }
+
+    @Test
+    void divide_正常除法() {
+        assertEquals(3, calc.divide(9, 3));
+    }
+
+    @Test
+    void divide_整除() {
+        assertEquals(3, calc.divide(10, 3));
+    }
+
+    @Test
+    void divide_除以零_抛异常() {
+        assertThrows(IllegalArgumentException.class, 
+                     () -> calc.divide(10, 0));
+    }
+
+    @Test
+    void divide_负数除法() {
+        assertEquals(-3, calc.divide(-9, 3));
+    }
+}
+```
+
+8 个测试方法全部通过。
+
+## 几个常用断言
+
+JUnit 5 的 `Assertions` 类提供了很多方法：
+
+| 断言 | 作用 | 示例 |
+|------|------|------|
+| `assertEquals(expected, actual)` | 相等 | `assertEquals(5, calc.add(2, 3))` |
+| `assertNotEquals(unexpected, actual)` | 不相等 | `assertNotEquals(0, result)` |
+| `assertTrue(condition)` | 为真 | `assertTrue(result > 0)` |
+| `assertFalse(condition)` | 为假 | `assertFalse(result.isEmpty())` |
+| `assertNull(obj)` | 为 null | `assertNull(result)` |
+| `assertNotNull(obj)` | 不为 null | `assertNotNull(user)` |
+| `assertThrows(Class, Executable)` | 抛异常 | `assertThrows(IOException.class, () -> ...)` |
+| `assertAll(...)` | 多个断言一起 | 见下 |
+| `assertTimeout(duration, Executable)` | 超时 | `assertTimeout(Duration.ofSeconds(1), ...)` |
+
+### `assertEquals` 的浮点陷阱
+
+```java
+assertEquals(0.3, 0.1 + 0.2);  // 失败！实际是 0.30000000000000004
+```
+
+浮点数比较要用 delta：
+
+```java
+assertEquals(0.3, 0.1 + 0.2, 0.0001);  // 误差 < 0.0001 就算相等
+```
+
+### `assertAll` 一次断言多个
+
+如果一个方法要验证多个属性，`assertAll` 会在所有断言跑完后再报错（而不是第一个失败就停）：
+
+```java
+@Test
+void user_所有属性正确() {
+    User user = userService.getById(1L);
+    assertAll("user属性",
+        () -> assertEquals("alice", user.getName()),
+        () -> assertEquals(25, user.getAge()),
+        () -> assertNotNull(user.getEmail())
+    );
+}
+```
+
+## 几个让测试更好用的注解
+
+### `@BeforeEach` — 每个测试方法前都跑
+
+```java
+class CalculatorTest {
+    private Calculator calc;
+
+    @BeforeEach
+    void setUp() {
+        calc = new Calculator();  // 每个测试方法前都重新创建
+        System.out.println("准备 Calculator");
+    }
+
+    @Test
+    void add_两个正数() {
+        assertEquals(5, calc.add(2, 3));
+    }
+}
+```
+
+### `@AfterEach` / `@BeforeAll` / `@AfterAll`
+
+| 注解 | 何时执行 |
+|------|----------|
+| `@BeforeEach` | 每个测试方法**之前** |
+| `@AfterEach` | 每个测试方法**之后** |
+| `@BeforeAll` | 整个测试类**之前**（一次）—— 方法必须 `static` |
+| `@AfterAll` | 整个测试类**之后**（一次）—— 方法必须 `static` |
+
+```java
+class DatabaseTest {
+    @BeforeAll
+    static void connectDb() {
+        // 整个测试类只连接一次数据库
+    }
+
+    @BeforeEach
+    void cleanTable() {
+        // 每个测试前清表
+    }
+
+    @Test
+    void test1() { }
+
+    @Test
+    void test2() { }
+
+    @AfterAll
+    static void closeDb() {
+        // 整个测试类跑完才关闭
+    }
+}
+```
+
+### `@DisplayName` — 给测试类/方法起个名字
+
+```java
+@DisplayName("计算器测试")
+class CalculatorTest {
+
+    @Test
+    @DisplayName("两个正数相加应该返回正确结果")
+    void add_两个正数() {
+        assertEquals(5, calc.add(2, 3));
+    }
+}
+```
+
+IDEA 里会显示中文名，测试报告也好读。
+
+### `@Disabled` — 暂时跳过某个测试
+
+```java
+@Test
+@Disabled("待修复 #123")
+void divide_除以负数() {
+    // 暂时不跑
+}
+```
+
+## 我的第一个 IDEA 快捷键
+
+测试时这几个 IDEA 快捷键救了我的命：
+
+| 快捷键 | 作用 |
+|--------|------|
+| `Ctrl+Shift+T` | 在被测类快速生成测试类 |
+| `Ctrl+Shift+F10` | 运行当前测试方法 |
+| `Alt+Enter` → "Add JUnit 5" | 自动加依赖和注解 |
+| `Ctrl+F9` | 重新编译 |
+
+特别是 `Ctrl+Shift+T`，第一次按的时候 IDEA 弹窗问我要测哪个类，**自动生成测试模板**：
+
+```java
+class CalculatorTest {
+    private Calculator calc;
+
+    @BeforeEach
+    void setUp() {
+        calc = new Calculator();  // 自动加
+    }
+
+    @Test
+    void add() { }  // 空的@Test 方法
+    
+    @Test
+    void divide() { }  // 空的@Test 方法
+}
+```
+
+我只用在空方法里填测试代码就行。
+
+## 一个让我当时懵了半小时的报错
+
+我第一次跑测试，报：
+
+```
+java.lang.NoClassDefFoundError: org/junit/platform/engine/support/discovery/EngineDiscoveryRequestResolver
+```
+
+**原因**：只加了 `junit-jupiter-api`，没加 `junit-jupiter-engine`。JUnit 5 把 API 和执行引擎分开了。
+
+**正解**：用聚合依赖 `junit-jupiter`（上面我给的依赖），里面包含所有。
+
+```
+junit-jupiter
+├── junit-jupiter-api     （写测试用的 API）
+├── junit-jupiter-params  （参数化测试）
+└── junit-jupiter-engine  （跑测试用的引擎）
+```
+
+## 几个"测试好习惯"
+
+跑完这个作业，老师给的几条建议：
+
+1. **每个测试方法只测一件事**——别一个方法里测 5 个功能
+2. **测试名要描述场景**——`add_两个正数相加_返回正确结果`，比 `testAdd1` 好
+3. **测试要独立**——不要依赖其他测试的运行顺序
+4. **不测 private 方法**——只测 public 接口（private 通过 public 间接测）
+5. **测试要快**——单元测试应该秒级完成，慢了就拆集成测试
+
+## 下一步
+
+下一篇准备写 **SpringBoot 第一个 Hello World**——下学期要学的框架，先自己撸一遍。新建项目到 `localhost:8080` 输出 hello，每一步具体在 IDEA 里点哪里。

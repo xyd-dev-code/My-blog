@@ -1,0 +1,533 @@
+---
+title: "MySQL 索引底层 — 10 万数据下，看 B+ 树为什么那么快"
+description: "之前只会用索引，不知道'为什么快'。这次自己造 10 万数据，从无索引到加索引，用 EXPLAIN 和 PROFILING 看查询从 2 秒变 2 毫秒的过程，理解 B+ 树的结构。"
+pubDate: 2024-11-13
+tags: ["MySQL", "索引", "B+树", "笔记"]
+---
+
+## 起因
+
+学 MySQL 索引时背了一堆规则：
+
+> "B+ 树索引、聚集索引、辅助索引、覆盖索引、回表……"
+
+但真要我说"为什么 B+ 树快"，我说不出来，只会复读"高度低、磁盘 IO 少"。
+
+老师布置实验：
+
+> "造 10 万条数据，对比有索引和无索引的查询时间，再用 EXPLAIN 看执行计划。搞清楚'为什么快'。"
+
+这篇是完整实验过程。
+
+## 实验一：无索引时
+
+```sql
+CREATE TABLE t_user_no_idx (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50),
+    email VARCHAR(100),
+    age INT,
+    created_at DATETIME
+);
+```
+
+**只有主键索引**，其他列没索引。
+
+造 10 万条数据：
+
+```sql
+INSERT INTO t_user_no_idx (username, email, age, created_at)
+SELECT
+    CONCAT('user_', FLOOR(RAND() * 100000)),
+    CONCAT('user_', FLOOR(RAND() * 100000), '@example.com'),
+    FLOOR(RAND() * 100),
+    DATE_ADD('2024-01-01', INTERVAL FLOOR(RAND() * 365) DAY)
+FROM information_schema.columns a, information_schema.columns b
+LIMIT 100000;
+```
+
+跑了几秒钟，10 万条数据进了。
+
+### 查一条数据
+
+```sql
+SELECT * FROM t_user_no_idx WHERE username = 'user_12345';
+```
+
+**用 `SET profiling = 1` 看耗时**：
+
+```sql
+SET profiling = 1;
+
+SELECT * FROM t_user_no_idx WHERE username = 'user_12345';
+SELECT * FROM t_user_no_idx WHERE username = 'user_67890';
+SELECT * FROM t_user_no_idx WHERE username = 'user_99999';
+
+SHOW PROFILES;
+```
+
+结果：
+
+```
++----------+------------+------------------------------------------------------------+
+| Query_ID | Duration   | Query                                                      |
++----------+------------+------------------------------------------------------------+
+|        1 | 0.0245 sec | SELECT * FROM t_user_no_idx WHERE username = 'user_12345' |
+|        2 | 0.0231 sec | SELECT * FROM t_user_no_idx WHERE username = 'user_67890' |
+|        3 | 0.0248 sec | SELECT * FROM t_user_no_idx WHERE username = 'user_99999' |
++----------+------------+------------------------------------------------------------+
+```
+
+每次约 **24 毫秒**。
+
+### EXPLAIN 看执行计划
+
+```sql
+EXPLAIN SELECT * FROM t_user_no_idx WHERE username = 'user_12345';
+```
+
+```
++----+-------------+----------------+------+---------------+------+---------+------+--------+-------------+
+| id | select_type | table          | type | possible_keys | key  | rows    | Extra |
++----+-------------+----------------+------+---------------+------+---------+------+--------+-------------+
+|  1 | SIMPLE      | t_user_no_idx  | ALL  | NULL          | NULL | 100534  | Using where |
++----+-------------+----------------+------+---------------+------+---------+------+--------+-------------+
+```
+
+**关键信息**：
+
+- `type: ALL` —— **全表扫描**
+- `key: NULL` —— 没用到索引
+- `rows: 100534` —— 扫了 10 万行
+- `Extra: Using where` —— 在 server 层做 where 过滤
+
+## 实验二：加索引后
+
+```sql
+CREATE INDEX idx_username ON t_user_no_idx(username);
+```
+
+### 再查一次
+
+```sql
+SELECT * FROM t_user_no_idx WHERE username = 'user_12345';
+SHOW PROFILES;
+```
+
+```
+Duration: 0.0008 sec   ← 从 24 毫秒降到 0.8 毫秒，提速 30 倍！
+```
+
+### EXPLAIN 再看
+
+```sql
+EXPLAIN SELECT * FROM t_user_no_idx WHERE username = 'user_12345';
+```
+
+```
++----+-------------+----------------+------+---------------+--------------+---------+-------+-------------+
+| id | select_type | table          | type | possible_keys | key          | rows    | Extra |
++----+-------------+----------------+------+---------------+--------------+---------+-------+-------------+
+|  1 | SIMPLE      | t_user_no_idx  | ref  | idx_username  | idx_username | 1       | NULL  |
++----+-------------+----------------+------+---------------+--------------+---------+-------+-------------+
+```
+
+**关键变化**：
+
+- `type: ALL` → `ref`：从全表扫描变**非唯一索引等值**
+- `key: idx_username`：用上索引了
+- `rows: 100534` → `1`：从扫 10 万行变扫 1 行
+
+## 为什么 B+ 树这么快？
+
+### 假设没有索引
+
+数据库要找到 `username = 'user_12345'`：
+
+```
+10 万条数据，每条都要对比 username
+最坏情况：扫 10 万次
+平均：扫 5 万次
+```
+
+**这叫全表扫描**。复杂度 O(n)。
+
+### 加了 B+ 树索引后
+
+```
+                    [50000]                  ← 根节点
+                   /       \
+            [25000]         [75000]         ← 第二层
+            /    \          /    \
+      ...  ...    ...   ...    ...  ...     ← 叶子节点
+```
+
+**B+ 树查找过程**：
+
+1. 从根节点开始（一次磁盘 IO）
+2. 比较目标值和节点里的值，决定往左还是右
+3. 重复 1-2 直到找到叶子节点
+
+**10 万条数据，B+ 树高度大概 3-4 层**。所以找一条数据最多 **3-4 次磁盘 IO**。
+
+**单次磁盘 IO 约 1-10 毫秒**，3 次 IO 也就 3-30 毫秒——但实际上因为**局部性原理**，根节点常驻内存，**实际 IO 更少**。
+
+### B+ 树的结构特点
+
+| 特点 | 作用 |
+|------|------|
+| **多路** | 每个节点存多个 key，树"矮胖"，IO 少 |
+| **叶子节点链表** | 范围查询快（WHERE age > 20 直接遍历） |
+| **非叶子节点只存 key** | 一个节点能存更多 key，高度更低 |
+| **数据全在叶子节点** | 查询时间稳定（必须到叶子）|
+
+对比 B 树：B 树每个节点都存数据，**范围查询要回溯**，不如 B+ 树。
+
+## 实验三：范围查询
+
+```sql
+SELECT * FROM t_user_no_idx WHERE age BETWEEN 20 AND 30;
+```
+
+### 没索引时
+
+```
+Duration: 0.031 sec
+type: ALL, rows: 100534
+```
+
+**全表扫 10 万行**。
+
+### 加索引后
+
+```sql
+CREATE INDEX idx_age ON t_user_no_idx(age);
+```
+
+```
+Duration: 0.003 sec   ← 提速 10 倍
+type: range, rows: 11000
+```
+
+`type: range` 是**范围查询用索引**。
+
+### B+ 树的叶子链表优势
+
+B+ 树的叶子节点**用链表连起来**：
+
+```
+叶子节点：[20] → [21] → [22] → ... → [100]
+```
+
+查 `age BETWEEN 20 AND 30`：
+
+1. 找到 `age = 20` 的叶子节点（3-4 次 IO）
+2. **顺着链表向后遍历**到 `age = 30`
+3. 范围查询结束
+
+**不用回溯到上层节点**——这就是 B+ 树范围查询快的原因。
+
+如果是 B 树，**每个 key 都在不同节点**，范围查询要回溯到上层。
+
+## 实验四：覆盖索引（不回表）
+
+InnoDB 的索引分两类：
+
+- **聚集索引**：叶子节点存**完整行数据**（主键就是聚集索引）
+- **辅助索引**：叶子节点存**主键值**
+
+```sql
+SELECT id FROM t_user_no_idx WHERE username = 'user_12345';
+```
+
+**EXPLAIN**：
+
+```
+type: ref, key: idx_username, Extra: NULL
+```
+
+**没有 `Using index`**，因为辅助索引只有 username + 主键，`id` 就是主键，**直接在辅助索引里**——不需要回表。
+
+但如果查其他列：
+
+```sql
+SELECT * FROM t_user_no_idx WHERE username = 'user_12345';
+```
+
+**EXPLAIN**：
+
+```
+type: ref, key: idx_username, Extra: NULL   ← 注意：没有 Using index
+```
+
+**虽然用索引定位了**，但要从辅助索引拿到主键，**再回主键索引查完整数据**——这一步叫"**回表**"。
+
+### 覆盖索引的威力
+
+```sql
+SELECT username FROM t_user_no_idx WHERE username = 'user_12345';
+```
+
+**EXPLAIN**：
+
+```
+type: ref, key: idx_username, Extra: Using index   ← 关键！
+```
+
+**`Using index` = 覆盖索引**：查询的列 `username` 就在索引里，**不用回表**。
+
+我跑了下时间对比：
+
+```sql
+-- 普通查询（需要回表）
+SELECT * FROM t_user_no_idx WHERE username = 'user_12345';
+-- 0.8 ms
+
+-- 覆盖索引（不用回表）
+SELECT username FROM t_user_no_idx WHERE username = 'user_12345';
+-- 0.3 ms
+
+-- 提速约 3 倍
+```
+
+## 实验五：联合索引
+
+我有个常见查询：
+
+```sql
+SELECT * FROM t_user_no_idx WHERE age = 25 AND username LIKE 'user_1%';
+```
+
+### 单列索引
+
+```sql
+CREATE INDEX idx_age ON t_user_no_idx(age);
+CREATE INDEX idx_username ON t_user_no_idx(username);
+```
+
+**EXPLAIN**：
+
+```
+type: ref, key: idx_age, rows: 1000
+```
+
+但实际上，**MySQL 只能用一个索引**。另一个 `username` 是在已经定位的 1000 行里再过滤。
+
+### 联合索引
+
+```sql
+DROP INDEX idx_age ON t_user_no_idx;
+DROP INDEX idx_username ON t_user_no_idx;
+CREATE INDEX idx_age_username ON t_user_no_idx(age, username);
+```
+
+**EXPLAIN**：
+
+```
+type: ref, key: idx_age_username, rows: 100
+```
+
+**rows 从 1000 降到 100**——因为索引里 age 已经排好序，相同 age 里 username 也排好序，**两个条件都用上了索引**。
+
+### 联合索引的最左前缀
+
+```sql
+-- 命中：左边有 age
+EXPLAIN SELECT * FROM t_user_no_idx WHERE age = 25 AND username = 'user_12345';
+
+-- 不命中：跳过了 age，只用 username
+EXPLAIN SELECT * FROM t_user_no_idx WHERE username = 'user_12345';
+```
+
+第二条：
+
+```
+type: ALL, key: NULL   ← 全表扫
+```
+
+**跳过了最左列 `age`，联合索引失效**。
+
+这就是"**最左前缀**"的字面意思：**从最左边的列开始，不能跳过**。
+
+## 实验六：ORDER BY 也走索引
+
+```sql
+-- 加了 idx_username 索引
+EXPLAIN SELECT * FROM t_user_no_idx ORDER BY username LIMIT 10;
+```
+
+**EXPLAIN**：
+
+```
+type: index, key: idx_username, Extra: NULL  ← 没 filesort！
+```
+
+`type: index` 表示**全索引扫描**（比全表扫快，索引更小）。
+
+**没有 `Using filesort`**——意味着 MySQL 不用在内存里排序，**直接顺着索引叶子节点走**。
+
+### 不加索引时
+
+```
+type: ALL, key: NULL, Extra: Using filesort  ← 内存排序
+```
+
+`Using filesort` 是坏信号——大表会很慢。
+
+## 实验七：索引失效的几个 case
+
+```sql
+-- 1. 对索引列用函数
+EXPLAIN SELECT * FROM t_user_no_idx WHERE UPPER(username) = 'USER_12345';
+```
+
+```
+type: ALL, key: NULL   ← 全表扫
+```
+
+**函数让索引失效**——MySQL 不知道函数结果和索引值的关系。
+
+```sql
+-- 2. 隐式类型转换
+EXPLAIN SELECT * FROM t_user_no_idx WHERE username = 12345;
+```
+
+```
+type: ALL, key: NULL   ← 全表扫
+```
+
+`username` 是 VARCHAR，参数是数字，**MySQL 隐式转字符串，全表扫**。
+
+**正解**：
+
+```sql
+EXPLAIN SELECT * FROM t_user_no_idx WHERE username = '12345';
+```
+
+```sql
+-- 3. LIKE 前导 %
+EXPLAIN SELECT * FROM t_user_no_idx WHERE username LIKE '%12345';
+```
+
+```
+type: ALL, key: NULL   ← 全表扫
+```
+
+`%` 在前面，**B+ 树没法定位**。
+
+**后导 % 就能用**：
+
+```sql
+EXPLAIN SELECT * FROM t_user_no_idx WHERE username LIKE 'user_12345%';
+
+type: range, key: idx_username  ← 用上索引
+```
+
+## 实验八：聚集索引的特殊性
+
+InnoDB 的**数据文件本身就是按主键组织的 B+ 树**：
+
+```
+聚集索引（主键）叶子节点：完整行数据
+辅助索引叶子节点：主键值
+```
+
+所以：
+
+- **主键查询**：直接在聚集索引里找，**最快**
+- **辅助索引查询**：先在辅助索引找主键，**再回表**——多一次查询
+
+### 主键查询有多快
+
+```sql
+SELECT * FROM t_user_no_idx WHERE id = 12345;
+```
+
+`type: const`，**常数级别**——1 次 IO。
+
+### 自增主键 vs UUID 主键
+
+```sql
+-- 自增主键：1, 2, 3, 4, 5 ...
+-- 插入永远在最后，不会挪动旧数据
+
+-- UUID：随机字符串
+-- 插入随机位置，可能挪动旧数据，**页分裂**
+```
+
+**推荐用自增主键**，**避免 UUID**（除非分布式 ID）。
+
+## B+ 树索引的代价
+
+### 写入变慢
+
+每次 INSERT/UPDATE/DELETE 都要更新索引。**索引越多，写入越慢**。
+
+```sql
+-- 1 个索引：1 次 B+ 树更新
+-- 5 个索引：5 次 B+ 树更新
+```
+
+### 占空间
+
+每个索引都是一个 B+ 树，占磁盘空间。
+
+```sql
+SHOW TABLE STATUS LIKE 't_user_no_idx';
+```
+
+```
+Index_length: 4.5 MB  ← 索引占的空间
+```
+
+10 万条数据，索引占 4.5 MB，**约等于数据本身的大小**。
+
+### 不要过度索引
+
+- 高频查询建索引
+- 低频查询**不建**
+- 联合索引**优于**多个单列索引
+- 区分度低的列（像 status 只有 0/1/2）**不建**
+
+## 我做完实验的几点理解
+
+### 1. B+ 树 = 矮胖的多路搜索树
+
+**3-4 层就能存百万级数据**，每次查询 3-4 次 IO，比全表扫快几百倍。
+
+### 2. 索引不是越多越好
+
+每个索引有 3 个代价：**写入慢、占空间、维护复杂**。
+
+### 3. EXPLAIN 是必看工具
+
+`type` `key` `rows` `Extra` 这四个字段，决定查询走没走索引。
+
+### 4. 覆盖索引是真神
+
+查询列都在索引里，**不用回表**，性能飙升。
+
+### 5. 设计索引要按业务
+
+```sql
+-- 高频查询
+WHERE user_id = ? AND status = ?
+ORDER BY created_at DESC
+LIMIT 10
+
+-- 索引
+INDEX idx_user_status_created (user_id, status, created_at DESC)
+```
+
+**联合索引覆盖 WHERE + ORDER BY**，避免 filesort。
+
+## 我给自己留的几个疑问
+
+1. **联合索引为什么必须从最左开始**？——因为 B+ 树先按第一列排序，第一列相同才按第二列
+2. **为什么 InnoDB 用 B+ 树而不是 Hash 索引**？——B+ 树支持范围查询，Hash 不支持
+3. **为什么主键推荐自增**？——避免页分裂
+4. **COUNT(*) 用什么索引最合适**？——MySQL 8.0+ 有专门优化，普通索引就够
+
+## 下一步
+
+下一篇准备写 **Vue + Axios 前后端联调 — 第一个完整全栈 demo**。前端 Vue 调后端 SpringBoot 接口，看 CORS 跨域怎么处理、登录态怎么保持、错误怎么统一处理。

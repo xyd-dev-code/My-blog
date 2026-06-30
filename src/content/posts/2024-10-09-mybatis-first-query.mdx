@@ -1,0 +1,545 @@
+---
+title: "MyBatis 第一个查询 — 用 XML 写 SQL 的体验"
+description: "从纯 JDBC 升级到 MyBatis，看 XML 怎么把 30 行模板代码缩成 5 行，以及 #{} vs ${} 的区别、Mapper 接口怎么和 XML 绑定。"
+pubDate: 2024-10-09
+tags: ["MyBatis", "ORM", "笔记", "Java"]
+---
+
+## 起因
+
+上篇写了纯 JDBC，每个查询要写 30 行模板代码：建连接、预编译、设置参数、执行、遍历结果集、关资源。
+
+老师让升级到 **MyBatis**——"同样的功能，看看你能省多少代码"。
+
+这篇是从 JDBC 到 MyBatis 的迁移过程。
+
+## 第一步：新建 SpringBoot 项目
+
+和上篇 JUnit 那次一样，`File → New → Project → Spring Boot Initializr`。
+
+选依赖：
+
+- `Spring Web`（虽然这次不用 Controller，但项目结构需要）
+- `MyBatis Framework`（核心）
+- `MySQL Driver`
+
+**不要勾 MyBatis-Plus**——老师要求用纯 MyBatis，**先搞懂原生的，再上 Plus**。
+
+## 第二步：准备数据
+
+复用上次的 `jdbc_demo` 数据库和 `t_user` 表。
+
+`application.yml`：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/jdbc_demo?useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: yourpassword
+    driver-class-name: com.mysql.cj.jdbc.Driver
+```
+
+## 第三步：实体类
+
+```java
+package com.example.mybatis_demo.entity;
+
+import lombok.Data;
+import java.time.LocalDateTime;
+
+@Data
+public class User {
+    private Long id;
+    private String username;
+    private String password;
+    private String email;
+    private Integer age;
+    private LocalDateTime createdAt;
+}
+```
+
+`@Data` 是 Lombok 注解，**自动生成 getter/setter/toString/equals/hashCode**。
+
+加 Lombok 依赖：
+
+```xml
+<dependency>
+    <groupId>org.projectlombok</groupId>
+    <artifactId>lombok</artifactId>
+    <optional>true</optional>
+</dependency>
+```
+
+## 第四步：Mapper 接口
+
+```java
+package com.example.mybatis_demo.mapper;
+
+import com.example.mybatis_demo.entity.User;
+import org.apache.ibatis.annotations.Mapper;
+import java.util.List;
+
+@Mapper  // 标记这是 MyBatis 的 Mapper
+public interface UserMapper {
+
+    List<User> selectAll();
+
+    User selectById(Long id);
+
+    List<User> selectByAge(Integer minAge);
+}
+```
+
+**就 3 个方法签名**，没有实现。
+
+## 第五步：Mapper XML（关键）
+
+`src/main/resources/mapper/UserMapper.xml`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.mybatis_demo.mapper.UserMapper">
+
+    <select id="selectAll" resultType="com.example.mybatis_demo.entity.User">
+        SELECT id, username, password, email, age, created_at AS createdAt
+        FROM t_user
+    </select>
+
+    <select id="selectById" resultType="com.example.mybatis_demo.entity.User">
+        SELECT id, username, password, email, age, created_at AS createdAt
+        FROM t_user
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByAge" resultType="com.example.mybatis_demo.entity.User">
+        SELECT id, username, password, email, age, created_at AS createdAt
+        FROM t_user
+        WHERE age > #{minAge}
+        ORDER BY age DESC
+    </select>
+
+</mapper>
+```
+
+注意几个关键点：
+
+1. **`namespace` = Mapper 接口全限定名**——MyBatis 通过这个绑接口和 XML
+2. **`id` = 接口方法名**——MyBatis 通过这个绑方法和 SQL
+3. **`resultType` = 返回类型全限定名**——MyBatis 通过这个做结果映射
+4. **`#{id}` 是占位符**——MyBatis 把它替换成 `?`，自动做参数化
+
+## 第六步：配置 MyBatis
+
+`application.yml` 加：
+
+```yaml
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.example.mybatis_demo.entity
+```
+
+- `mapper-locations`：告诉 MyBatis 在哪里找 XML
+- `type-aliases-package`：起别名，`resultType` 可以写 `User` 而不是全限定名
+
+## 第七步：测试
+
+新建 `src/test/java/.../UserMapperTest.java`：
+
+```java
+@SpringBootTest
+class UserMapperTest {
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Test
+    void selectAll_返回所有用户() {
+        List<User> users = userMapper.selectAll();
+        System.out.println("查询到 " + users.size() + " 个用户");
+        users.forEach(System.out::println);
+    }
+
+    @Test
+    void selectById_返回单个用户() {
+        User user = userMapper.selectById(1L);
+        System.out.println(user);
+    }
+
+    @Test
+    void selectByAge_过滤大于某年龄() {
+        List<User> users = userMapper.selectByAge(25);
+        System.out.println("查询到 " + users.size() + " 个大于 25 岁的用户");
+        users.forEach(System.out::println);
+    }
+}
+```
+
+跑一下，**三个测试都通过**：
+
+```
+查询到 3 个用户
+User(id=1, username=alice, ...)
+User(id=2, username=bob, ...)
+User(id=3, username=charlie, ...)
+```
+
+## 我当时最大的震撼
+
+JDBC 写一个查询要 30 行模板代码，MyBatis 写一个查询要 0 行 Java 代码（接口都不用写实现）—— SQL 全在 XML 里。
+
+**对比**：
+
+```java
+// JDBC 版本
+public List<User> selectAll() throws SQLException {
+    Connection conn = DriverManager.getConnection(URL, USER, PWD);
+    PreparedStatement ps = conn.prepareStatement("SELECT * FROM t_user");
+    ResultSet rs = ps.executeQuery();
+    List<User> users = new ArrayList<>();
+    while (rs.next()) {
+        User u = new User();
+        u.setId(rs.getLong("id"));
+        u.setUsername(rs.getString("username"));
+        // ... 一堆 setXxx
+        users.add(u);
+    }
+    rs.close();
+    ps.close();
+    conn.close();
+    return users;
+}
+```
+
+```java
+// MyBatis 版本
+public interface UserMapper {
+    List<User> selectAll();
+}
+```
+
+```xml
+<select id="selectAll" resultType="User">
+    SELECT * FROM t_user
+</select>
+```
+
+**Java 代码从 15 行变 1 行，SQL 还是 SQL**。
+
+## 我当时没搞懂的 #{} 和 ${} 区别
+
+```xml
+<!-- 用 #{} -->
+WHERE id = #{id}
+
+<!-- 用 ${} -->
+WHERE id = ${id}
+```
+
+**看起来一样，但底层完全不同**。
+
+### `#{}`：预编译，安全
+
+MyBatis 把 `#{id}` 翻译成 `?`：
+
+```sql
+SELECT * FROM t_user WHERE id = ?
+```
+
+然后用 `PreparedStatement.setXxx(1, id)` 设置参数。**自动做 SQL 注入防护**。
+
+```java
+// 参数是 "1 OR 1=1"
+userMapper.selectById("1 OR 1=1");
+// 最终 SQL: SELECT * FROM t_user WHERE id = '1 OR 1=1'
+// 找不到任何用户
+```
+
+### `${}`：字符串拼接，不安全
+
+MyBatis 把 `${id}` 直接替换字符串：
+
+```sql
+SELECT * FROM t_user WHERE id = 1 OR 1=1
+```
+
+**有 SQL 注入风险**。
+
+```java
+// 参数是 "1 OR 1=1"
+userMapper.selectById("1 OR 1=1");
+// 最终 SQL: SELECT * FROM t_user WHERE id = 1 OR 1=1
+// 返回所有用户！
+```
+
+**铁律**：**永远用 `#{}`，除非迫不得已**。
+
+### 什么时候必须用 ${}？
+
+动态表名 / 动态列名 / `ORDER BY` 字段：
+
+```xml
+<!-- 动态表名 - 必须用 ${} -->
+<select id="selectFromTable">
+    SELECT * FROM ${tableName}
+</select>
+
+<!-- 动态排序 - ${} -->
+<select id="selectAll">
+    SELECT * FROM t_user ORDER BY ${column}
+</select>
+
+<!-- 用户输入 -->
+<select id="search">
+    SELECT * FROM t_user WHERE username LIKE '%${keyword}%'
+</select>
+```
+
+**但用 `${}` 必须自己做白名单校验**，防止注入。
+
+## 复杂查询：动态 SQL
+
+我想做个"按用户名/邮箱/年龄"组合查询，条件可能有也可能没有。JDBC 里要写一堆 `if` 拼 SQL，MyBatis 有专门的标签：
+
+```xml
+<select id="search" resultType="User">
+    SELECT * FROM t_user
+    <where>
+        <if test="username != null and username != ''">
+            AND username LIKE CONCAT('%', #{username}, '%')
+        </if>
+        <if test="email != null and email != ''">
+            AND email = #{email}
+        </if>
+        <if test="minAge != null">
+            AND age >= #{minAge}
+        </if>
+    </where>
+    ORDER BY id DESC
+</select>
+```
+
+Mapper 接口：
+
+```java
+List<User> search(@Param("username") String username,
+                  @Param("email") String email,
+                  @Param("minAge") Integer minAge);
+```
+
+调用：
+
+```java
+List<User> users = userMapper.search("alice", null, null);
+// 实际 SQL: SELECT * FROM t_user WHERE username LIKE '%alice%' ORDER BY id DESC
+
+List<User> users = userMapper.search(null, "alice@example.com", 20);
+// 实际 SQL: SELECT * FROM t_user WHERE email = 'alice@example.com' AND age >= 20 ORDER BY id DESC
+```
+
+**`<where>` 自动处理多余的 `AND` / `OR`**。
+
+### 其他动态 SQL 标签
+
+| 标签 | 作用 |
+|------|------|
+| `<if>` | 条件判断 |
+| `<choose>` `<when>` `<otherwise>` | 多分支（switch） |
+| `<where>` | 自动加 WHERE，去掉多余的 AND |
+| `<set>` | 自动加 SET，去掉多余的逗号（用于 UPDATE）|
+| `<foreach>` | 遍历集合（用于 IN） |
+| `<trim>` | 自定义前后缀 |
+
+### `<foreach>` 实战
+
+```xml
+<select id="selectByIds" resultType="User">
+    SELECT * FROM t_user
+    WHERE id IN
+    <foreach collection="ids" item="id" open="(" close=")" separator=",">
+        #{id}
+    </foreach>
+</select>
+```
+
+调用：
+
+```java
+List<User> users = userMapper.selectByIds(Arrays.asList(1L, 2L, 3L));
+```
+
+生成的 SQL：
+
+```sql
+SELECT * FROM t_user WHERE id IN (1, 2, 3)
+```
+
+## 完整的 CRUD
+
+```xml
+<mapper namespace="com.example.mybatis_demo.mapper.UserMapper">
+
+    <!-- 新增 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO t_user (username, password, email, age)
+        VALUES (#{username}, #{password}, #{email}, #{age})
+    </insert>
+
+    <!-- 删除 -->
+    <delete id="deleteById">
+        DELETE FROM t_user WHERE id = #{id}
+    </delete>
+
+    <!-- 更新 -->
+    <update id="updateEmail">
+        UPDATE t_user SET email = #{email} WHERE id = #{id}
+    </update>
+
+    <!-- 查询 -->
+    <select id="selectById" resultType="User">
+        SELECT * FROM t_user WHERE id = #{id}
+    </select>
+
+</mapper>
+```
+
+`useGeneratedKeys="true" keyProperty="id"` 表示插入后自动回填主键。
+
+## 我当时踩的 4 个坑
+
+### 坑 1：字段名和属性名不一致
+
+数据库字段是 `created_at`，Java 属性是 `createdAt`。
+
+**解决方案 A**：SQL 起别名
+
+```xml
+SELECT created_at AS createdAt FROM t_user
+```
+
+**解决方案 B**：`resultMap` 显式映射
+
+```xml
+<resultMap id="userResultMap" type="User">
+    <id column="id" property="id"/>
+    <result column="created_at" property="createdAt"/>
+</resultMap>
+
+<select id="selectAll" resultMap="userResultMap">
+    SELECT * FROM t_user
+</select>
+```
+
+**解决方案 C**：开启驼峰转换（`application.yml`）：
+
+```yaml
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+```
+
+开启后 `created_at` 自动映射到 `createdAt`，**不用写别名**。
+
+### 坑 2：Mapper 接口找不到
+
+启动报错：
+
+```
+org.apache.ibatis.binding.BindingException: Type interface UserMapper is not known to the MapperRegistry.
+```
+
+**原因**：忘了 `@Mapper` 注解，或者 `@MapperScan` 没配。
+
+**正解**：
+
+```java
+@Mapper  // 加上这个
+public interface UserMapper { }
+```
+
+或者：
+
+```java
+@SpringBootApplication
+@MapperScan("com.example.mybatis_demo.mapper")  // 扫描整个包
+public class MybatisDemoApplication { }
+```
+
+### 坑 3：XML 找不到
+
+报错：
+
+```
+Invalid bound statement (not found): com.example.mybatis_demo.mapper.UserMapper.selectAll
+```
+
+**原因**：XML 没编译进 classpath。
+
+**正解**：`pom.xml` 加 resources 编译：
+
+```xml
+<build>
+    <resources>
+        <resource>
+            <directory>src/main/resources</directory>
+            <includes>
+                <include>**/*.xml</include>
+                <include>**/*.yml</include>
+            </includes>
+        </resource>
+    </resources>
+</build>
+```
+
+### 坑 4：参数超过一个没加 @Param
+
+```java
+List<User> search(String username, String email);
+```
+
+XML：
+
+```xml
+<select id="search">
+    SELECT * FROM t_user WHERE username = #{username} AND email = #{email}
+</select>
+```
+
+调用时报错：
+
+```
+Parameter 'username' not found. Available parameters are [arg0, arg1, param1, param2]
+```
+
+**正解**：加 `@Param`：
+
+```java
+List<User> search(@Param("username") String username, 
+                  @Param("email") String email);
+```
+
+**单参数不用加**，多参数必须加。
+
+## 我做完 MyBatis 的几点体会
+
+### 1. XML 是 SQL 的"家"
+
+MyBatis 把 SQL 抽到 XML 里，**业务代码和 SQL 解耦**——改 SQL 不用改 Java 代码。
+
+### 2. #{} 是好朋友
+
+`#{}` 防 SQL 注入，`${}` 不防。**默认用 #{}，迫不得已才用 ${}**。
+
+### 3. 接口 = 契约
+
+Mapper 接口定义方法签名（参数、返回值），XML 实现 SQL。**两端自动绑定**。
+
+### 4. 写 CRUD 是体力活
+
+3 个表 × 5 个操作 = 15 个方法。MyBatis-Plus 就是为了**消灭这些重复**——下一篇写。
+
+## 下一步
+
+下一篇准备写 **Vue 3 第一个组件**——前后端要打通，前端得学。`File → New → Vue Project` 之后，组件怎么写、怎么传到后端、看一次就懂。

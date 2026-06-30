@@ -1,0 +1,544 @@
+---
+title: "亚信实习 Month 2 — 第一次做慢 SQL 优化，加索引前后对比"
+description: "导师让我处理慢 SQL 工单：用户信息查询 800ms。EXPLAIN 看执行计划、定位无索引、加索引、用 sysbench 压测对比。P99 从 800ms 降到 50ms，含完整操作过程。"
+pubDate: 2026-02-10
+tags: ["实习", "亚信科技", "慢SQL", "MySQL"]
+---
+
+## 起因
+
+实习第二个月，W 哥给我派了第二个工单：
+
+> "**用户信息查询接口慢**。**P95 800ms**。**看慢 SQL 日志**。"
+
+业务支撑系统有**慢 SQL 监控**（DBA 平台），W 哥给我开了查询权限。
+
+**第二个生产优化任务** —— **比上一次（空指针）更需要数据支撑**。
+
+## 第一步：DBA 平台看慢 SQL
+
+登录 DBA 平台（`dba.xxxx.local`）：
+
+```
+[慢 SQL 列表]  按 P95 响应时间倒序
+─────────────────────────────────────────────────
+1. SELECT * FROM user_info WHERE org_id=? AND status=?
+   P95: 820ms  调用: 3000次/小时
+2. SELECT ... FROM order WHERE ... LIMIT 20
+   P95: 600ms  调用: 500次/小时  
+3. SELECT ... FROM log_record WHERE create_time BETWEEN ? AND ?
+   P95: 400ms  调用: 100次/小时
+...
+```
+
+**第一条就是我工单关注的**。
+
+点进去看详情：
+
+```sql
+SELECT id, username, real_name, email, phone, status, last_login_time, create_time
+FROM user_info
+WHERE org_id = ? AND status = ?
+ORDER BY create_time DESC
+LIMIT 20;
+```
+
+**P95 820ms** —— 确实慢。
+
+应用代码里的调用：
+
+```java
+@Override
+public List<UserVO> listByOrg(Long orgId, Integer status, int pageNum, int pageSize) {
+    int offset = (pageNum - 1) * pageSize;
+    return userMapper.listByCondition(orgId, status, offset, pageSize);
+}
+```
+
+`Mapper.java`：
+
+```java
+@Select("SELECT ... FROM user_info WHERE org_id = #{orgId} AND status = #{status} " +
+        "ORDER BY create_time DESC LIMIT #{pageSize} OFFSET #{offset}")
+List<User> listByCondition(@Param("orgId") Long orgId, 
+                          @Param("status") Integer status,
+                          @Param("offset") int offset,
+                          @Param("pageSize") int pageSize);
+```
+
+## 第二步：看表结构和索引
+
+DBeaver 查表结构：
+
+```sql
+SHOW CREATE TABLE user_info\G
+```
+
+```
+CREATE TABLE `user_info` (
+    `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+    `username` VARCHAR(50) DEFAULT NULL,
+    `real_name` VARCHAR(50) DEFAULT NULL,
+    `org_id` BIGINT(20) DEFAULT NULL,
+    `email` VARCHAR(100) DEFAULT NULL,
+    `phone` VARCHAR(20) DEFAULT NULL,
+    `status` TINYINT(4) DEFAULT '1' COMMENT '1启用 0停用',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `last_login_time` DATETIME DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_username` (`username`),
+    KEY `idx_status` (`status`),
+    KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+COMMENT='用户信息表';
+```
+
+**索引情况**：
+
+| 索引 | 字段 |
+|------|------|
+| PRIMARY KEY | id |
+| UNIQUE uk_username | username |
+| idx_status | status（单列） |
+| idx_create_time | create_time（单列） |
+| **没有 org_id 的索引** | ← 关键 |
+
+**问题明显**：
+
+- `WHERE org_id = ? AND status = ?`
+- `org_id` **完全没有索引**（高基数，每个组织一个）
+- `status` 有单列索引但**区分度低**（只有 0 和 1 两值）
+- `ORDER BY create_time` 有索引但**不在 WHERE 后**
+
+## 第三步：EXPLAIN 看执行计划
+
+W 哥说要"看执行计划，不要猜"：
+
+连到生产 readonly 账号跑：
+
+```sql
+EXPLAIN
+SELECT id, username, real_name, email, phone, status, last_login_time, create_time
+FROM user_info
+WHERE org_id = 100 AND status = 1
+ORDER BY create_time DESC
+LIMIT 20;
+```
+
+**输出**：
+
+```
++----+-------------+-----------+------+---------------+------+---------+------+--------+-----------------------------+
+| id | select_type | table     | type | possible_keys | key  | key_len | rows  | Extra                       |
++----+-------------+-----------+------+---------------+------+---------+------+--------+-----------------------------+
+|  1 | SIMPLE      | user_info | ALL  | idx_status    | NULL | NULL    | 12345 | Using where; Using filesort |
++----+-------------+-----------+------+---------------+------+---------+------+--------+-----------------------------+
+```
+
+**关键字段解读**：
+
+| 字段 | 值 | 含义 |
+|------|------|------|
+| type | ALL | **全表扫描** —— 最坏情况 |
+| possible_keys | idx_status | 可能用 status 索引 |
+| key | NULL | **实际没用索引**（基数太低，优化器放弃） |
+| rows | 12345 | **扫了 12345 行**（表也就 1.2 万） |
+| Extra | Using where; Using filesort | **内存排序** |
+
+**优化器为啥不用 idx_status**？
+
+```sql
+SELECT COUNT(*) FROM user_info WHERE status = 1;
+-- 返回 11500，占 93%
+```
+
+**93% 数据都是 status=1** —— 用 `idx_status` 还是扫描大部分行，**优化器认为不如全表扫**。
+
+**filesort 是另一个问题** —— 1.2 万行在内存排序，**慢**。
+
+## 第四步：W 哥的索引建议
+
+我以为直接 `INDEX (org_id)` 就行。W 哥说：
+
+> "**等值查询放前，排序放后**。**联合索引** `(org_id, status, create_time)` —— **覆盖 WHERE + ORDER BY**。"
+
+**要点**：
+
+- `org_id` 基数大（每组织一个）放最左 —— 高效过滤
+- `status` 基数小但还是有用，放中间 —— 进一步过滤
+- `create_time` 排序列放最后 —— 避免 filesort
+
+```sql
+CREATE INDEX idx_org_status_create ON user_info(org_id, status, create_time DESC);
+```
+
+**W 哥解释"为啥 desc"**：
+
+> "**MySQL 8.0+ 支持 DESC 索引**。**`create_time DESC` 索引默认是升序**，**倒序扫描要反向**。**建 DESC 索引，反向扫描更高效**。"
+
+## 第五个坑：DBA 审核
+
+我以为开发能直接改生产索引，**不行**。
+
+DBA 告诉我：
+
+> "**加索引要走工单**。**索引变更要在业务低峰期**（凌晨 1-5 点）。**大表加索引要谨慎**。"
+
+公司流程：
+
+1. 开发提索引变更工单
+2. DBA 审核（看表大小、是否有锁风险）
+3. DBA 执行（用 pt-online-schema-change）
+4. 开发验证
+
+**写工单**：
+
+```
+工单 ID: IDX-2026-02-05-001
+表: user_info
+变更: ADD INDEX idx_org_status_create (org_id, status, create_time DESC)
+原因: 业务支撑用户列表接口慢 SQL 优化
+影响: pt-osc 在线加索引，不锁表，预计 5 分钟
+执行时间: 2026-02-08 03:00 (业务低峰)
+回滚方案: DROP INDEX idx_org_status_create
+验证方案: 预发环境 EXPLAIN + sysbench 压测
+```
+
+**审核通过**。
+
+## 第六个坑：先预发验证
+
+不能直接上生产，**必须先预发**。
+
+预发环境数据库是从生产同步过来的（凌晨 3 点同步），**数据量一致**。
+
+```bash
+# 预发环境加索引（dev 账号没权限，DBA 代执行）
+```
+
+等 30 分钟，DBA 在预发加完索引。
+
+我再 EXPLAIN：
+
+```sql
+EXPLAIN ... WHERE org_id = 100 AND status = 1 ORDER BY create_time DESC LIMIT 20;
+```
+
+```
++----+-------------+-----------+-------+------------------------+------------------------+---------+------+-------+
+| id | select_type | table     | type  | possible_keys          | key                    | key_len | rows | Extra |
++----+-------------+-----------+-------+------------------------+------------------------+---------+------+-------+
+|  1 | SIMPLE      | user_info | ref   | idx_org_status_create  | idx_org_status_create  | 9       | 12   | NULL  |
++----+-------------+-----------+-------+------------------------+------------------------+---------+------+-------+
+```
+
+**对比**：
+
+| 字段 | 索引前 | 索引后 |
+|------|--------|--------|
+| type | ALL | **ref** |
+| key | NULL | **idx_org_status_create** |
+| rows | 12345 | **12** |
+| Extra | Using filesort | NULL（**filesort 没了！**） |
+
+**rows 从 12345 降到 12**，**filesort 没了**。
+
+**优化成功**。
+
+## 第七步：sysbench 压测对比
+
+W 哥强调"**不光看 EXPLAIN，要跑实际数据**"。
+
+用 sysbench 写脚本：
+
+```lua
+-- user_list_select.lua
+function event()
+    local org_id = sysbench.rand_uniform(1, 100)  -- 100 个组织随机
+    local status = 1
+    local page_size = 20
+    
+    db_query("SELECT id, username, ... FROM user_info " ..
+             "WHERE org_id = " .. org_id .. " AND status = " .. status .. 
+             " ORDER BY create_time DESC LIMIT " .. page_size)
+end
+```
+
+预发环境压测（**先不加索引，再加索引对比**）：
+
+```bash
+# 100 并发 持续 60 秒
+sysbench --threads=100 --time=60 \
+    --report-interval=5 \
+    --mysql-host=db-pre.xxx.local \
+    --mysql-user=readonly \
+    --mysql-db=biz_support \
+    --lua=user_list_select.lua \
+    run
+```
+
+### 索引前
+
+```
+SQL statistics:
+    queries performed:
+        read: 4800
+        write: 0
+        total: 4800
+    
+    General statistics:
+        total time: 60.003s
+        total number of events: 600
+    
+    Latency (ms):
+         min: 320
+         avg: 998.20
+         max: 1500
+         p95: 1200
+         p99: 1400
+```
+
+**P95 1.2 秒，P99 1.4 秒，平均 1 秒** —— 慢。
+
+### 索引后
+
+```
+SQL statistics:
+    queries performed:
+        read: 28560
+        write: 0
+        total: 28560
+    
+    General statistics:
+        total time: 60.001s
+        total number of events: 4760
+    
+    Latency (ms):
+         min: 8
+         avg: 12.50
+         max: 25
+         p95: 22
+         p99: 28
+```
+
+**P95 22ms，P99 28ms，平均 12.5ms** —— 飞快。
+
+**对比**：
+
+| 指标 | 索引前 | 索引后 | 提升 |
+|------|--------|--------|------|
+| 总请求数 | 600 | 4760 | **8 倍** |
+| 平均响应 | 998ms | 12.5ms | **80 倍** |
+| P95 | 1200ms | 22ms | **55 倍** |
+| P99 | 1400ms | 28ms | **50 倍** |
+
+**W 哥看截图说**：
+
+> "**提升非常明显**。**线上验证后这个工单就能关了**。"
+
+## 第八步：生产环境执行
+
+DBA 在 2026-02-08 凌晨 3 点执行。
+
+```sql
+-- pt-online-schema-change 执行 ADD INDEX
+-- 5 分钟完成，全程不锁表
+```
+
+我**等到第二天早上**再看监控：
+
+```
+/api/users 接口:
+P95: 800ms → 50ms (16 倍提升)
+P99: 1200ms → 80ms (15 倍提升)
+QPS: 50 → 50（没变化，但响应快了）
+错误率: 0.05% → 0.05%（没变）
+```
+
+**持续观察 3 天**，**指标稳定**。
+
+W 哥让我关掉工单：
+
+```
+工单解决记录:
+根因: user_info 表 org_id 字段无索引，查询全表扫
+优化: 添加联合索引 (org_id, status, create_time DESC)
+效果: P95 800ms → 50ms, P99 1200ms → 80ms
+验证: 预发 sysbench 压测、生产 3 天监控
+时长: 5 天（含 DBA 审核、执行、观察）
+```
+
+## 第九个坑：回滚方案要"明确"
+
+W 哥要求每个变更工单都要写回滚方案：
+
+```sql
+-- 如果出问题，回滚
+DROP INDEX idx_org_status_create ON user_info;
+-- 5 秒搞定（轻量操作，不锁表）
+```
+
+**回滚要"真的能跑通"** —— 不是写个 SQL 就完了。
+
+**这次索引变更如果有问题，DBA 一行 SQL 就回滚**，**风险可控**。
+
+## 几个具体学到的
+
+### 1. 索引要看"基数" + "查询模式"
+
+不是"慢就加索引"，要分析：
+
+- 哪些字段在 WHERE
+- 哪些字段在 ORDER BY
+- 字段基数（多少不同值）
+- 是否已经有索引
+
+**联合索引的列顺序很关键** —— 高基数、等值查询的字段放前。
+
+### 2. EXPLAIN 必看字段
+
+W 哥说"看到 sql 慢，先看 EXPLAIN"：
+
+| 字段 | 看什么 | 关心 |
+|------|--------|------|
+| type | 扫描方式 | **不要 ALL，不要 index**（最好 ref/range/const） |
+| key | 用到的索引 | 不是 NULL |
+| rows | 扫描行数 | 越少越好 |
+| Extra | 额外信息 | **不要 Using filesort、不要 Using temporary** |
+
+**Extra 的关键值**：
+- `Using filesort` —— 内存排序，**坏**
+- `Using temporary` —— 用了临时表，**坏**
+- `Using index` —— **覆盖索引，好**
+- `Using where` —— 服务端 where 过滤（看情况）
+
+### 3. sysbench 是真有用
+
+光看 EXPLAIN 不够 —— **要真实数据、真实并发压测**。
+
+W 哥说：
+
+> "**没有经过压测的优化** —— **生产环境出问题你背锅**。"
+
+### 4. 加索引要走 DBA
+
+**为什么**：
+
+- DBA 检查变更影响
+- DBA 有工具 pt-osc（在线加索引，不锁表）
+- DBA 有"低峰期"流程
+- DBA 有回滚标准流程
+
+**不要自己偷偷加** —— **出问题你担不起**。
+
+### 5. SQL 慢的常见根因
+
+W 哥给我一份"SQL 慢原因速查"：
+
+| 现象 | 可能原因 |
+|------|----------|
+| type=ALL, rows 多 | **无索引或没用上索引** |
+| Extra: Using filesort | **ORDER BY 字段无索引** |
+| Extra: Using temporary | **GROUP BY/DISTINCT 无索引** |
+| rows 接近表大小 | **基数低或没用联合索引** |
+| key=NULL | **索引失效或基数太低** |
+
+**我现在能熟练用这个表排查**。
+
+## 慢 SQL 优化的反思
+
+### 1. 老系统代码经常踩坑
+
+业务支撑系统是从老系统迁移来的，**SQL 是历史代码**。
+
+**很多没考虑索引**。
+
+**W 哥说**：
+
+> "**老系统的 SQL 改起来风险大**。**先加索引（不动 SQL）**。**SQL 重构放到二期**。"
+
+### 2. 联合索引比单列索引"覆盖"能力更强
+
+我之前以为 `WHERE org_id=? AND status=?` 要两个单列索引。
+
+**正解**：一个联合索引 `(org_id, status, create_time)` 比两个单列索引强：
+
+- 单列索引只能用其中一个
+- 联合索引**两个都能用**
+- 再加上 `create_time`，**顺便避免 filesort**
+
+### 3. 数据量小的时候索引看不出效果
+
+100 条数据的表，全表扫也很快。
+
+**数据量到几万**才有明显差异。
+
+### 4. 索引不是越多越好
+
+每多一个索引：
+
+- INSERT/UPDATE/DELETE 慢（要更新索引）
+- 占磁盘
+- 优化器选错索引的风险
+
+**原则**：
+
+- 高频查询建索引
+- 不查的字段不建
+- 联合索引优于多个单列
+- 区分度低的字段不建
+
+## 我做完这次优化的几个收获
+
+### 1. 慢 SQL 排查有"流程"
+
+```
+1. 看慢 SQL 日志（DBA 平台）
+2. EXPLAIN 执行计划
+3. 看表结构、看索引
+4. 设计索引（结合业务）
+5. 预发环境验证 + 压测对比
+6. DBA 审核 + 生产执行
+7. 监控观察 1-3 天
+8. 关工单
+```
+
+**和修 bug 的流程很像** —— **只是工具从 git log 变成了 sysbench**。
+
+### 2. 加索引是"性价比最高"的优化
+
+W 哥说：
+
+> "**加一个索引** —— **几小时工作**，**性能 10-100 倍**。**大部分慢 SQL 都是索引问题**。**先试加索引**。"
+
+但加索引也要看：
+
+- 表大小（>1 亿行要慎重）
+- 写入频率（写入多的表多索引会拖慢）
+- 索引列的选择性
+
+### 3. 数据驱动的优化
+
+**优化前**：表 A 有问题，加索引
+**优化后**：P95 80ms，确认有效
+
+**没有压测数据，不要说"优化成功"**。
+
+W 哥说：
+
+> "**没有数据支撑的优化是赌博**。**有数据才能说'这个优化有效'**。"
+
+### 4. 文档很重要
+
+我电脑商城没写过"SQL 优化报告"。
+
+公司有标准模板：症状、原因、方案、验证、效果、反思。
+
+**这次报告我写了 2 页** —— W 哥 review 后存档到团队 wiki。
+
+**以后有人遇到类似慢 SQL 可以参考**。
+
+## 下一步
+
+下一篇准备写 **亚信实习 Month 3-4 — 实习结束的感受 + 给后辈的建议**：从代码到工程素养、第一次接触生产、应届生怎么准备秋招、简历怎么写。

@@ -1,0 +1,746 @@
+---
+title: "电脑商城 Day 6-7 — 订单模块，事务控制踩坑实录"
+description: "下订单要扣库存、改购物车、生成订单，3 步必须原子。Spring @Transactional 用错了一行就翻车：自调用失效、异常被吞、库存超卖。含 4 个具体踩坑（事务自调用、AOP 顺序、库存超卖、RabbitMQ 异步扣库存）。"
+pubDate: 2025-07-22
+tags: ["电脑商城", "订单", "事务", "SpringBoot"]
+---
+
+## 起因
+
+电脑商城 Day 6-7，做订单模块。
+
+我以为下订单很简单——"扣库存、改购物车、生成订单"3 步写到一起不就行了？
+
+**结果一上来就翻车**：
+
+- 库存扣了，订单没生成 → 钱没付，货没了
+- 订单生成了，购物车没清 → 购物车还在，用户重复下单
+- 两个用户同时下最后一单 → 都显示"下单成功"，库存变负数
+
+这篇是踩坑和修复的完整过程。
+
+## 第一步：表设计回顾
+
+```sql
+-- 订单表
+CREATE TABLE t_order (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_no VARCHAR(50) NOT NULL UNIQUE,
+    user_id BIGINT NOT NULL,
+    total_amount DECIMAL(10, 2) NOT NULL,
+    status TINYINT NOT NULL DEFAULT 0,  -- 0待支付 1已支付 2已发货 3已完成 4已取消
+    receiver_name VARCHAR(50),
+    receiver_phone VARCHAR(20),
+    receiver_address VARCHAR(255),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    paid_at DATETIME
+);
+
+-- 订单项表（商品快照）
+CREATE TABLE t_order_item (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    product_name VARCHAR(200) NOT NULL,  -- 快照
+    product_image VARCHAR(255),         -- 快照
+    price DECIMAL(10, 2) NOT NULL,      -- 快照
+    quantity INT NOT NULL
+);
+```
+
+**商品快照很关键**——订单要"冻结"下单时刻的商品名/价格，**不能后续跟着商品表变**。
+
+## 第二步：第一个朴素实现
+
+```java
+@Service
+public class OrderServiceImpl implements OrderService {
+
+    @Autowired
+    private ProductMapper productMapper;
+    @Autowired
+    private OrderMapper orderMapper;
+    @Autowired
+    private OrderItemMapper orderItemMapper;
+    @Autowired
+    private CartService cartService;
+
+    @Override
+    public String createOrder(Long userId, CreateOrderRequest req) {
+        // 1. 从购物车取勾选的商品
+        List<CartItemVO> items = cartService.listSelected(userId);
+        if (items.isEmpty()) {
+            throw new BusinessException(400, "购物车为空");
+        }
+
+        // 2. 扣库存
+        for (CartItemVO item : items) {
+            Product p = productMapper.selectById(item.getProductId());
+            if (p.getStock() < item.getQuantity()) {
+                throw new BusinessException(400, p.getName() + " 库存不足");
+            }
+            p.setStock(p.getStock() - item.getQuantity());
+            p.setSales(p.getSales() + item.getQuantity());
+            productMapper.updateById(p);
+        }
+
+        // 3. 生成订单
+        Order order = new Order();
+        order.setOrderNo(generateOrderNo());
+        order.setUserId(userId);
+        order.setTotalAmount(calculateTotal(items));
+        order.setStatus(0);
+        order.setReceiverName(req.getReceiverName());
+        order.setReceiverPhone(req.getReceiverPhone());
+        order.setReceiverAddress(req.getReceiverAddress());
+        orderMapper.insert(order);
+
+        // 4. 生成订单项
+        for (CartItemVO item : items) {
+            Product p = productMapper.selectById(item.getProductId());
+            OrderItem oi = new OrderItem();
+            oi.setOrderId(order.getId());
+            oi.setProductId(item.getProductId());
+            oi.setProductName(p.getName());      // 快照
+            oi.setProductImage(p.getCoverImage());
+            oi.setPrice(p.getPrice());            // 快照
+            oi.setQuantity(item.getQuantity());
+            orderItemMapper.insert(oi);
+        }
+
+        // 5. 清空购物车
+        cartService.clearSelected(userId);
+
+        return order.getOrderNo();
+    }
+}
+```
+
+跑起来，**下了一单，库存减了，订单生成了，购物车清了**——看着挺正常。
+
+但老师 review 立刻问："事务呢？"
+
+我一脸懵："什么事务？"
+
+老师指着代码说："第 2 步扣库存，循环到第 3 个商品时库存不够抛异常——**前面 2 个商品的库存已经扣了**，**回滚了吗**？"
+
+**没有**。
+
+**第一个坑：没有事务**。
+
+## 第三个坑修复：加 @Transactional
+
+```java
+@Override
+@Transactional
+public String createOrder(Long userId, CreateOrderRequest req) {
+    // ...
+}
+```
+
+再跑，库存不足时**库存正确回滚**了。
+
+**但用户同时下两单问题没解决**——两个请求都通过了"库存 >= 数量"的判断，**都成功扣库存，库存变负数**。
+
+老师又问："**并发怎么办**？"
+
+## 第二个坑修复：乐观锁
+
+```java
+@Override
+@Transactional
+public String createOrder(Long userId, CreateOrderRequest req) {
+    List<CartItemVO> items = cartService.listSelected(userId);
+    
+    for (CartItemVO item : items) {
+        // 乐观锁扣库存
+        int rows = productMapper.deductStock(item.getProductId(), item.getQuantity());
+        if (rows == 0) {
+            throw new BusinessException(400, "库存不足");
+        }
+    }
+    // ...
+}
+```
+
+Mapper：
+
+```java
+@Update("UPDATE t_product SET stock = stock - #{quantity}, sales = sales + #{quantity} " +
+        "WHERE id = #{productId} AND stock >= #{quantity}")
+int deductStock(@Param("productId") Long productId, @Param("quantity") Integer quantity);
+```
+
+**关键**：`WHERE stock >= #{quantity}` —— 库存不够就不更新，**返回 0 行**。
+
+我用 JMeter 模拟 100 个线程同时抢最后 1 件商品，**只有 1 个成功，其他 99 个失败**——库存不会变负数了。
+
+**但又出现新问题**：
+
+```
+用户 A：选了 2 件商品（1 件库存够，1 件库存不够）
+用户 A 下单 → 第 1 件扣库存成功，第 2 件失败
+抛异常 → 事务回滚 → 第 1 件库存"回滚"了
+```
+
+等等，**回滚是对的**啊？
+
+是的，**单用户下 2 件商品 1 件不够**——**整单回滚**——这个行为是对的。
+
+**但两个用户各下 1 件**呢？
+
+```
+商品库存 = 1
+用户 A：扣库存成功，rows = 1
+用户 B：扣库存失败，rows = 0 → 抛 "库存不足" 异常
+用户 A：继续生成订单，正常
+用户 B：抛异常回滚，但用户 B 啥也没干，本来就没扣成功
+```
+
+**OK，乐观锁够用**。
+
+## 第三个坑：事务自调用失效
+
+我有这样一个需求：
+
+- 内部方法 `deductStockAndCreateOrder` 要事务
+- 外部方法 `createOrder` 调用它
+- 外部方法也加 `@Transactional`
+
+```java
+@Service
+public class OrderServiceImpl implements OrderService {
+
+    @Override
+    public String createOrder(Long userId, CreateOrderRequest req) {
+        // 前置校验
+        validate(req);
+        return doCreateOrder(userId, req);
+    }
+
+    @Transactional
+    public String doCreateOrder(Long userId, CreateOrderRequest req) {
+        // 实际下单逻辑
+    }
+}
+```
+
+**自调用失效**——`doCreateOrder` 上面的 `@Transactional` 不生效。
+
+**原因**：Spring 事务靠 AOP 代理，**同类内部方法互相调用**走的是 `this`，**不是代理对象**，AOP 拦截不到。
+
+**几种正解**：
+
+**方案 1**：把 `doCreateOrder` 拆到另一个 Service
+
+```java
+@Service
+public class OrderTransactionalService {
+    @Transactional
+    public String doCreateOrder(Long userId, CreateOrderRequest req) {
+        // ...
+    }
+}
+
+@Service
+public class OrderServiceImpl {
+    @Autowired
+    private OrderTransactionalService txService;
+    
+    public String createOrder(Long userId, CreateOrderRequest req) {
+        validate(req);
+        return txService.doCreateOrder(userId, req);
+    }
+}
+```
+
+**方案 2**：注入自己
+
+```java
+@Service
+public class OrderServiceImpl implements OrderService {
+
+    @Autowired
+    @Lazy  // 解决循环依赖
+    private OrderService self;
+
+    public String createOrder(Long userId, CreateOrderRequest req) {
+        validate(req);
+        return self.doCreateOrder(userId, req);
+    }
+
+    @Transactional
+    public String doCreateOrder(Long userId, CreateOrderRequest req) {
+        // ...
+    }
+}
+```
+
+**方案 3**：用 `AopContext.currentProxy()`
+
+```java
+@Service
+public class OrderServiceImpl implements OrderService {
+
+    public String createOrder(Long userId, CreateOrderRequest req) {
+        validate(req);
+        return ((OrderService) AopContext.currentProxy()).doCreateOrder(userId, req);
+    }
+}
+```
+
+但要加 `@EnableAspectJAutoProxy(exposeProxy = true)`。
+
+**我选方案 1**——拆 Service 最清晰。
+
+## 第四个坑：异常被 try-catch 吞了
+
+```java
+@Transactional
+public String doCreateOrder(Long userId, CreateOrderRequest req) {
+    try {
+        // 扣库存
+        deductStock();
+        // 生成订单
+        createOrderRecord();
+    } catch (Exception e) {
+        log.error("下单失败", e);
+        // 我以为"记个日志就行"
+    }
+    return "success";  // 用户以为下单成功了
+}
+```
+
+**问题**：异常被 try-catch 吞了，**事务不会回滚**——库存扣了，订单没生成。
+
+**正解**：
+
+**方案 A**：抛出去
+
+```java
+@Transactional
+public String doCreateOrder(Long userId, CreateOrderRequest req) {
+    deductStock();
+    createOrderRecord();
+    return "success";  // 异常会从这里抛出去
+}
+```
+
+**方案 B**：手动回滚
+
+```java
+@Transactional
+public String doCreateOrder(Long userId, CreateOrderRequest req) {
+    try {
+        deductStock();
+        createOrderRecord();
+    } catch (Exception e) {
+        log.error("下单失败", e);
+        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+    }
+    return "success";
+}
+```
+
+**方案 C**：指定回滚异常类型
+
+```java
+@Transactional(rollbackFor = BusinessException.class)
+public String doCreateOrder(Long userId, CreateOrderRequest req) {
+    // ...
+}
+```
+
+**默认 `@Transactional` 只回滚 RuntimeException，不回滚 BusinessException**（继承自 Exception）。
+
+**我用了方案 C**——业务异常也回滚。
+
+## 第五个坑：AOP 切面顺序
+
+我加了**两个切面**：
+
+1. 事务切面（@Transactional）
+2. 日志切面（@Aspect 记录操作日志）
+
+```java
+@Aspect
+@Component
+public class LogAspect {
+
+    @Around("@annotation(com.mall.annotation.Log)")
+    public Object around(ProceedingJoinPoint pjp) throws Throwable {
+        log.info("开始调用 {}", pjp.getSignature());
+        Object result = pjp.proceed();
+        log.info("调用结束");
+        return result;
+    }
+}
+```
+
+跑起来发现**日志在事务回滚后还在打**——日志记录的"调用结束"应该看不到，因为事务回滚了。
+
+**原因**：切面顺序没指定，Spring 默认按字母顺序或不确定顺序。
+
+**正解**：用 `@Order` 指定优先级
+
+```java
+@Aspect
+@Component
+@Order(1)  // 数字越小，优先级越高，越外层
+public class LogAspect { ... }
+
+@Aspect
+@Component
+@Order(2)
+public class TransactionAspect { ... }
+```
+
+**事务应该在最里层**——事务开始→执行业务→提交/回滚→日志记录提交结果。
+
+**我设置**：日志 `@Order(1)`，事务 `@Order(2)`——日志外层，事务内层。
+
+## 第六个坑：超卖
+
+库存是 1，两个用户同时下 1 件：
+
+```
+商品库存 = 1
+用户 A：UPDATE t_product SET stock = stock - 1 WHERE id = 1 AND stock >= 1
+用户 B：UPDATE t_product SET stock = stock - 1 WHERE id = 1 AND stock >= 1
+```
+
+**乐观锁的 WHERE stock >= 1 应该保证只有一个成功**。
+
+但**我的实现里**：
+
+```java
+@Transactional
+public String doCreateOrder(Long userId, CreateOrderRequest req) {
+    for (CartItemVO item : items) {
+        int rows = productMapper.deductStock(item.getProductId(), item.getQuantity());
+        if (rows == 0) {
+            throw new BusinessException(400, "库存不足");
+        }
+    }
+    // ...
+}
+```
+
+事务开始 → 检查商品 1：成功 → 检查商品 2：失败 → 抛异常 → 事务回滚 → 商品 1 库存回滚。
+
+**到这里都是对的**。
+
+**但如果是分布式部署**呢？
+
+服务 A 和服务 B 各自有自己的 MySQL 连接，**两个服务间的 MySQL 行锁默认不互通**——除非用分布式锁。
+
+**但**乐观锁 + 数据库行锁 + 事务隔离级别 RR，**单机是 OK 的**。
+
+**生产环境**：用 Redis 分布式锁（Redisson）+ 乐观锁，**双保险**。
+
+## 完整的事务实现
+
+```java
+@Service
+public class OrderTxService {
+
+    @Autowired
+    private ProductMapper productMapper;
+    @Autowired
+    private OrderMapper orderMapper;
+    @Autowired
+    private OrderItemMapper orderItemMapper;
+    @Autowired
+    private StringRedisTemplate redis;
+
+    @Transactional(rollbackFor = Exception.class)
+    public String createOrder(Long userId, CreateOrderRequest req) {
+        // 1. 取购物车选中商品
+        List<CartItemVO> items = cartService.listSelected(userId);
+        if (items.isEmpty()) {
+            throw new BusinessException(400, "购物车为空");
+        }
+
+        // 2. 分布式锁 + 乐观锁扣库存
+        for (CartItemVO item : items) {
+            // 分布式锁（防止分布式部署下并发问题）
+            String lockKey = "stock:" + item.getProductId();
+            RLock lock = redisson.getLock(lockKey);
+            try {
+                lock.lock(5, TimeUnit.SECONDS);
+                
+                int rows = productMapper.deductStock(item.getProductId(), item.getQuantity());
+                if (rows == 0) {
+                    throw new BusinessException(400, item.getProductName() + " 库存不足");
+                }
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        // 3. 生成订单
+        Order order = new Order();
+        order.setOrderNo(generateOrderNo());
+        order.setUserId(userId);
+        order.setTotalAmount(calculateTotal(items));
+        order.setStatus(0);
+        order.setReceiverName(req.getReceiverName());
+        order.setReceiverPhone(req.getReceiverPhone());
+        order.setReceiverAddress(req.getReceiverAddress());
+        orderMapper.insert(order);
+
+        // 4. 生成订单项（商品快照）
+        for (CartItemVO item : items) {
+            Product p = productMapper.selectById(item.getProductId());
+            OrderItem oi = new OrderItem();
+            oi.setOrderId(order.getId());
+            oi.setProductId(item.getProductId());
+            oi.setProductName(p.getName());
+            oi.setProductImage(p.getCoverImage());
+            oi.setPrice(p.getPrice());
+            oi.setQuantity(item.getQuantity());
+            orderItemMapper.insert(oi);
+        }
+
+        // 5. 清购物车选中项
+        cartService.clearSelected(userId);
+
+        return order.getOrderNo();
+    }
+
+    private BigDecimal calculateTotal(List<CartItemVO> items) {
+        return items.stream()
+            .map(item -> item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private String generateOrderNo() {
+        // 时间戳 + 6 位随机数
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                + String.format("%06d", new Random().nextInt(1000000));
+    }
+}
+```
+
+## 订单状态流转
+
+```java
+@Service
+public class OrderServiceImpl {
+
+    public void payOrder(String orderNo) {
+        Order order = orderMapper.selectByOrderNo(orderNo);
+        if (order == null) throw new BusinessException(400, "订单不存在");
+        if (order.getStatus() != 0) throw new BusinessException(400, "订单状态错误");
+
+        order.setStatus(1);  // 已支付
+        order.setPaidAt(LocalDateTime.now());
+        orderMapper.updateById(order);
+
+        // 发消息到 RabbitMQ 通知库存系统
+        rabbitTemplate.convertAndSend("order.paid", orderNo);
+    }
+
+    public void cancelOrder(String orderNo) {
+        Order order = orderMapper.selectByOrderNo(orderNo);
+        if (order == null) throw new BusinessException(400, "订单不存在");
+        if (order.getStatus() != 0) {
+            throw new BusinessException(400, "只能取消待支付订单");
+        }
+
+        order.setStatus(4);  // 已取消
+        orderMapper.updateById(order);
+
+        // 退库存
+        List<OrderItem> items = orderItemMapper.selectByOrderId(order.getId());
+        for (OrderItem item : items) {
+            productMapper.restoreStock(item.getProductId(), item.getQuantity());
+        }
+    }
+}
+```
+
+**状态机**：
+
+```
+0 待支付 ──(支付)──> 1 已支付 ──(发货)──> 2 已发货 ──(收货)──> 3 已完成
+   │
+   └─(取消)──> 4 已取消
+```
+
+**只有待支付状态可以支付和取消**——其他状态转换要校验当前状态。
+
+## 异步扣库存的优化
+
+下订单 → 支付成功 → 异步扣库存。
+
+为什么要异步？
+
+- 同步扣库存：用户支付完成要等 100ms 才看到"成功"
+- 异步扣库存：用户支付完成立刻看到"成功"，扣库存放后台
+
+```java
+@Service
+public class OrderServiceImpl {
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    public void payOrder(String orderNo) {
+        // ... 更新订单状态 ...
+        
+        // 发送消息
+        rabbitTemplate.convertAndSend("order.exchange", "order.paid", orderNo);
+    }
+}
+```
+
+消费者：
+
+```java
+@Component
+public class OrderPaidConsumer {
+
+    @RabbitListener(queues = "order.paid.queue")
+    public void handle(String orderNo) {
+        // 扣库存
+        // ...
+    }
+}
+```
+
+**好处**：
+
+- 用户支付响应快
+- 库存扣减失败有重试机制
+- 系统解耦
+
+**坑**：消息可能重复发送（RabbitMQ 至少一次投递）——**消费端要幂等**。
+
+```java
+@RabbitListener(queues = "order.paid.queue")
+public void handle(String orderNo) {
+    // 幂等检查
+    if (redis.setIfAbsent("paid:" + orderNo, "1", 24, TimeUnit.HOURS)) {
+        // 第一次处理
+        deductStock(orderNo);
+    }
+    // 重复消息直接忽略
+}
+```
+
+## 几个最佳实践
+
+### 1. 事务边界要清晰
+
+**事务开始 → 业务操作 → 事务提交**，**不要在事务里做远程调用**（HTTP/RPC/MQ 发送）。
+
+```java
+// ❌ 错：事务里调远程
+@Transactional
+public void createOrder() {
+    saveOrder();
+    httpClient.call();  // 远程调用要等几秒，事务持有数据库连接几秒
+}
+
+// ✅ 对：事务外调远程
+public void createOrder() {
+    txService.saveOrder();
+    httpClient.call();  // 事务已经提交
+}
+```
+
+### 2. 锁的粒度要小
+
+- 锁商品，不要锁订单
+- 锁订单项，不要锁整个订单列表
+
+```java
+// ❌ 错：锁整个购物车
+synchronized(cart) { deductStock(); }
+
+// ✅ 对：锁每个商品
+for (item : items) {
+    synchronized("stock:" + item.getProductId()) { deductStock(); }
+}
+```
+
+### 3. 库存操作要"先查后改"或"条件改"
+
+**用 `WHERE stock >= ?` 条件更新**，**不要先 SELECT 再 UPDATE**（有并发问题）。
+
+### 4. 异常要明确
+
+- 业务异常（库存不足、订单不存在）→ `BusinessException` → 回滚
+- 系统异常（数据库连不上）→ RuntimeException → 自动回滚
+- 错误要记日志（关键位置）
+
+### 5. 单元测试要覆盖并发
+
+```java
+@Test
+public void testConcurrentDeductStock() throws InterruptedException {
+    int threadCount = 100;
+    CountDownLatch latch = new CountDownLatch(threadCount);
+    ExecutorService pool = Executors.newFixedThreadPool(10);
+    
+    AtomicInteger success = new AtomicInteger(0);
+    AtomicInteger fail = new AtomicInteger(0);
+    
+    for (int i = 0; i < threadCount; i++) {
+        pool.submit(() -> {
+            try {
+                if (orderService.tryDeduct(productId, 1)) {
+                    success.incrementAndGet();
+                } else {
+                    fail.incrementAndGet();
+                }
+            } finally {
+                latch.countDown();
+            }
+        });
+    }
+    latch.await();
+    
+    // 库存是 1，应该只有 1 个成功
+    assertEquals(1, success.get());
+    assertEquals(99, fail.get());
+}
+```
+
+## 我做完订单模块的几个心得
+
+### 1. 事务不是银弹
+
+事务能保证**数据库操作的原子性**，但**跨服务、跨库的事务**就难搞了——**用最终一致性 + MQ**。
+
+### 2. 锁是用来保护共享资源的
+
+- 数据库行锁：`SELECT ... FOR UPDATE` 或 `WHERE ... >= ?` 乐观锁
+- 应用锁：`synchronized` 或 `ReentrantLock`（单 JVM）
+- 分布式锁：Redisson（多 JVM）
+
+### 3. 幂等性是分布式系统的基本要求
+
+MQ 消息可能重复，HTTP 请求可能重试——**所有写操作都要幂等**。
+
+### 4. 异步能提升性能，但要复杂化
+
+- 同步：用户等结果，事务简单
+- 异步：用户不等，事务复杂（MQ、幂等、补偿）
+
+**不是所有场景都需要异步**——下单这种**同步事务更直接**。
+
+### 5. 测试要覆盖异常路径
+
+- 库存不足
+- 商品下架
+- 订单状态错误
+- 并发抢库存
+- 消息重复
+
+**这些不测，生产必出事**。
+
+## 下一步
+
+下一篇准备写 **电脑商城收尾 — AOP 日志、统一异常处理、Docker 部署**。把"日常运维"那套搭起来。

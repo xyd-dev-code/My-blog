@@ -1,0 +1,628 @@
+---
+title: "SpringBoot 常用注解速查 — 每个注解配一个能跑通的例子"
+description: "学完分层架构后，把用过的注解系统整理一遍。@Autowired / @RestController / @RequestMapping / @PathVariable / @RequestBody / @Configuration / @Value，每个都附具体代码例子。"
+pubDate: 2024-05-27
+tags: ["SpringBoot", "注解", "笔记", "速查"]
+---
+
+## 起因
+
+分层架构那篇作业里，我用了一堆注解：
+
+- `@RestController`
+- `@RequestMapping`
+- `@Autowired`
+- `@PathVariable`
+- `@RequestBody`
+
+老师让我"系统整理一遍，别每次都查文档"。
+
+这篇把学过的注解按**功能分组**，每个都附一个能跑通的例子。当速查表用。
+
+## 一、Web 层注解（接收请求）
+
+### `@RestController`
+
+**作用**：标记这是个 Controller，返回 JSON 数据。
+
+```java
+@RestController
+public class UserController {
+    // 所有方法返回值直接转 JSON，不找视图
+}
+```
+
+等价于：
+
+```java
+@Controller
+@ResponseBody  // 所有方法返回值转 JSON
+public class UserController { }
+```
+
+### `@RequestMapping`
+
+**作用**：通用路径映射。
+
+```java
+@RestController
+@RequestMapping("/users")  // 类级别路径
+public class UserController {
+
+    @RequestMapping("/list")  // 方法级别路径
+    public List<User> list() {
+        // 最终路径：/users/list
+        return userService.listUsers();
+    }
+
+    @RequestMapping(value = "/create", method = RequestMethod.POST)
+    public String create(@RequestBody User user) {
+        // 最终路径：/users/create，方法 POST
+        return "ok";
+    }
+}
+```
+
+**简化版**（更常用）：
+
+| 注解 | 等价于 |
+|------|--------|
+| `@GetMapping` | `@RequestMapping(method = GET)` |
+| `@PostMapping` | `@RequestMapping(method = POST)` |
+| `@PutMapping` | `@RequestMapping(method = PUT)` |
+| `@DeleteMapping` | `@RequestMapping(method = DELETE)` |
+
+### `@PathVariable`
+
+**作用**：从 URL 路径里取参数。
+
+```java
+@GetMapping("/users/{id}")
+public User get(@PathVariable Long id) {
+    return userService.getUser(id);
+}
+```
+
+访问 `/users/1`，`id = 1`。
+
+**带名字**（参数名和变量名不一致时）：
+
+```java
+@GetMapping("/users/{userId}")
+public User get(@PathVariable("userId") Long id) {
+    // URL 里的 userId → 变量 id
+}
+```
+
+### `@RequestParam`
+
+**作用**：从 URL 查询字符串取参数。
+
+```java
+@GetMapping("/users")
+public List<User> list(
+    @RequestParam(defaultValue = "1") int page,
+    @RequestParam(defaultValue = "10") int size) {
+    return userService.listUsers(page, size);
+}
+```
+
+访问 `/users?page=2&size=20`，`page=2, size=20`。
+
+**简化版**：参数名和变量名一致时，可以省略：
+
+```java
+public List<User> list(@RequestParam String keyword) { }
+// 等价于
+public List<User> list(@RequestParam("keyword") String keyword) { }
+```
+
+### `@RequestBody`
+
+**作用**：从 HTTP 请求体里取 JSON，转成对象。
+
+```java
+@PostMapping("/users")
+public String create(@RequestBody User user) {
+    userService.createUser(user);
+    return "ok";
+}
+```
+
+POST 请求体：
+
+```json
+{
+  "username": "alice",
+  "password": "pass123",
+  "email": "alice@example.com"
+}
+```
+
+Spring 自动用 Jackson 转成 `User` 对象。
+
+### `@RequestHeader`
+
+**作用**：取请求头。
+
+```java
+@GetMapping("/header")
+public String header(@RequestHeader("User-Agent") String userAgent) {
+    return "你的浏览器是：" + userAgent;
+}
+```
+
+### `@CookieValue`
+
+**作用**：取 Cookie。
+
+```java
+@GetMapping("/cookie")
+public String cookie(@CookieValue("JSESSIONID") String sessionId) {
+    return "session: " + sessionId;
+}
+```
+
+## 二、Bean 注入注解
+
+### `@Autowired`
+
+**作用**：自动注入依赖。
+
+```java
+@Service
+public class UserServiceImpl implements UserService {
+
+    @Autowired
+    private UserMapper userMapper;  // Spring 自动注入
+}
+```
+
+**三种注入方式**：
+
+**1. 字段注入**（最简单，但不推荐）：
+
+```java
+@Autowired
+private UserMapper userMapper;
+```
+
+**2. 构造器注入**（推荐，Spring 4.3+ 单构造器可省略 `@Autowired`）：
+
+```java
+@Service
+public class UserServiceImpl implements UserService {
+    private final UserMapper userMapper;
+
+    public UserServiceImpl(UserMapper userMapper) {
+        this.userMapper = userMapper;
+    }
+}
+```
+
+**3. Setter 注入**（不推荐）：
+
+```java
+@Autowired
+public void setUserMapper(UserMapper userMapper) {
+    this.userMapper = userMapper;
+}
+```
+
+**构造器注入的好处**：`final` 字段，依赖不可变；测试时方便传 mock。
+
+### `@Resource`
+
+**作用**：按名称注入（JDK 自带）。
+
+```java
+@Resource(name = "userMapper")
+private UserMapper userMapper;
+```
+
+`@Autowired` 默认按类型，找不到再按名字。`@Resource` 默认按名字，找不到再按类型。
+
+### `@Qualifier`
+
+**作用**：配合 `@Autowired` 按名字注入。
+
+```java
+@Autowired
+@Qualifier("mysqlUserMapper")
+private UserMapper userMapper;
+```
+
+一个接口有多个实现类时必须用：
+
+```java
+public interface UserMapper { }
+@Repository
+public class MysqlUserMapper implements UserMapper { }
+@Repository
+public class PostgresUserMapper implements UserMapper { }
+```
+
+## 三、组件注册注解
+
+### `@Component`
+
+**作用**：通用组件。
+
+```java
+@Component
+public class MyUtils {
+    public String format(String s) { return s.trim(); }
+}
+```
+
+**语义化变种**：
+
+| 注解 | 用途 | 等价于 |
+|------|------|--------|
+| `@Service` | 业务层 | `@Component` |
+| `@Repository` | 数据层（额外把 SQL 异常转 Spring 异常）| `@Component` |
+| `@Controller` | Web 层（返回视图）| `@Component` |
+| `@RestController` | Web 层（返回 JSON）| `@Controller + @ResponseBody` |
+| `@Configuration` | 配置类 | `@Component`（额外标记是配置类）|
+
+### `@Configuration` + `@Bean`
+
+**作用**：用 Java 代码注册 Bean（替代 XML）。
+
+```java
+@Configuration
+public class AppConfig {
+
+    @Bean
+    public ObjectMapper objectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.setDateFormat(new SimpleDateFormat("yyyy-MM-dd"));
+        return mapper;
+    }
+}
+```
+
+等价于 XML：
+
+```xml
+<bean id="objectMapper" class="com.fasterxml.jackson.databind.ObjectMapper">
+    <property name="dateFormat">
+        <bean class="java.text.SimpleDateFormat">
+            <constructor-arg value="yyyy-MM-dd"/>
+        </bean>
+    </property>
+</bean>
+```
+
+**Java 配置更直观**——不用写一堆 XML。
+
+### `@ComponentScan`
+
+**作用**：扫描组件包。
+
+```java
+@SpringBootApplication  // 包含 @ComponentScan
+public class HelloDemoApplication { }
+
+// 等价于
+@SpringBootApplication
+@ComponentScan("com.example.hellodemo")
+public class HelloDemoApplication { }
+```
+
+`@SpringBootApplication` 默认扫描启动类所在包及子包。
+
+### `@MapperScan`
+
+**作用**：扫描 Mapper 接口。
+
+```java
+@SpringBootApplication
+@MapperScan("com.example.hellodemo.mapper")
+public class HelloDemoApplication { }
+```
+
+不加这个，Mapper 接口不会被 Spring 扫描到，启动会报 `NoSuchBeanDefinitionException`。
+
+## 四、配置读取注解
+
+### `@Value`
+
+**作用**：从配置文件读单个值。
+
+```yaml
+# application.yml
+app:
+  name: hello-demo
+  upload:
+    max-size: 10485760
+```
+
+```java
+@Component
+public class AppConfig {
+
+    @Value("${app.name}")
+    private String appName;
+
+    @Value("${app.upload.max-size}")
+    private Long maxSize;
+}
+```
+
+### `@ConfigurationProperties`
+
+**作用**：把一组配置绑定到对象。
+
+```yaml
+# application.yml
+app:
+  name: hello-demo
+  upload:
+    max-size: 10485760
+    allowed-types: jpg,png,gif
+```
+
+```java
+@Component
+@ConfigurationProperties(prefix = "app")
+@Data
+public class AppProperties {
+    private String name;
+    private Upload upload;
+
+    @Data
+    public static class Upload {
+        private Long maxSize;
+        private List<String> allowedTypes;
+    }
+}
+```
+
+**好处**：配置多时不用写一堆 `@Value`，直接绑对象。
+
+### `@PropertySource`
+
+**作用**：加载自定义配置文件。
+
+```java
+@Configuration
+@PropertySource("classpath:custom.properties")
+public class CustomConfig {
+    @Value("${custom.key}")
+    private String key;
+}
+```
+
+## 五、事务和异步
+
+### `@Transactional`
+
+**作用**：声明事务。
+
+```java
+@Service
+public class OrderServiceImpl {
+
+    @Transactional(rollbackFor = Exception.class)
+    public void createOrder(Order order) {
+        orderMapper.insert(order);
+        stockMapper.reduceStock(order.getProductId());
+        // 任何一个失败，整个回滚
+    }
+}
+```
+
+**关键属性**：
+
+- `rollbackFor`：哪些异常回滚（默认只回滚 RuntimeException）
+- `propagation`：传播行为（默认 REQUIRED）
+- `isolation`：隔离级别（默认 DEFAULT，数据库默认）
+
+### `@Async`
+
+**作用**：异步执行（在新线程跑）。
+
+```java
+@Service
+public class EmailService {
+
+    @Async
+    public void sendWelcome(String email) {
+        // 发邮件（可能很慢，不阻塞主流程）
+    }
+}
+```
+
+需要在启动类加 `@EnableAsync`。
+
+### `@Scheduled`
+
+**作用**：定时任务。
+
+```java
+@Component
+public class TaskJob {
+
+    @Scheduled(fixedRate = 5000)  // 每 5 秒
+    public void reportStatus() {
+        System.out.println("report");
+    }
+}
+```
+
+需要在启动类加 `@EnableScheduling`。
+
+### `@Cacheable`
+
+**作用**：缓存方法返回值。
+
+```java
+@Service
+public class ProductService {
+
+    @Cacheable(value = "product", key = "#id")
+    public Product getById(Long id) {
+        // 第一次查数据库，之后从 Redis 读
+        return productMapper.selectById(id);
+    }
+}
+```
+
+需要在启动类加 `@EnableCaching`。
+
+## 六、参数校验注解
+
+这些注解是 `jakarta.validation` 包的，配合 `@Valid` 使用。
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-validation</artifactId>
+</dependency>
+```
+
+```java
+@RestController
+@RequestMapping("/users")
+public class UserController {
+
+    @PostMapping
+    public String create(@RequestBody @Valid User user) {
+        userService.createUser(user);
+        return "ok";
+    }
+}
+
+@Data
+public class User {
+
+    @NotNull(message = "用户名不能为空")
+    @Size(min = 3, max = 20, message = "用户名长度 3-20")
+    private String username;
+
+    @NotBlank(message = "密码不能为空")
+    @Size(min = 6, max = 20)
+    private String password;
+
+    @Email(message = "邮箱格式不正确")
+    private String email;
+}
+```
+
+POST 一个不合法请求：
+
+```json
+{ "username": "ab", "password": "", "email": "xxx" }
+```
+
+返回：
+
+```json
+{
+  "username": "用户名长度 3-20",
+  "password": "密码不能为空",
+  "email": "邮箱格式不正确"
+}
+```
+
+常用校验注解：
+
+| 注解 | 作用 |
+|------|------|
+| `@NotNull` | 不为 null |
+| `@NotEmpty` | 不为 null 且长度 > 0 |
+| `@NotBlank` | 不为 null 且去空格后长度 > 0 |
+| `@Size(min, max)` | 长度/大小范围 |
+| `@Min(value)` | 数字最小值 |
+| `@Max(value)` | 数字最大值 |
+| `@Email` | 邮箱格式 |
+| `@Pattern(regexp)` | 正则匹配 |
+| `@Past` | 过去时间 |
+| `@Future` | 未来时间 |
+
+## 七、AOP 注解（用于切面）
+
+```java
+@Aspect
+@Component
+public class LogAspect {
+
+    @Before("execution(* com.example..*.*(..))")
+    public void before(JoinPoint joinPoint) {
+        System.out.println("调用前：" + joinPoint.getSignature());
+    }
+
+    @After("execution(* com.example..*.*(..))")
+    public void after(JoinPoint joinPoint) {
+        System.out.println("调用后：" + joinPoint.getSignature());
+    }
+
+    @Around("execution(* com.example..*.*(..))")
+    public Object around(ProceedingJoinPoint joinPoint) throws Throwable {
+        long start = System.currentTimeMillis();
+        Object result = joinPoint.proceed();
+        long cost = System.currentTimeMillis() - start;
+        System.out.println(joinPoint.getSignature() + " 耗时 " + cost + "ms");
+        return result;
+    }
+}
+```
+
+## 八、测试注解
+
+```java
+@SpringBootTest
+class UserServiceTest {
+
+    @Autowired
+    private UserService userService;
+
+    @Test
+    void testGetUser() {
+        User user = userService.getUser(1L);
+        assertNotNull(user);
+    }
+
+    @BeforeEach
+    void setUp() {
+        // 每个测试方法前执行
+    }
+}
+```
+
+| 注解 | 作用 |
+|------|------|
+| `@SpringBootTest` | 启动 Spring 容器做集成测试 |
+| `@MockBean` | 注入 Mock 对象 |
+| `@Test` | 标记测试方法 |
+| `@BeforeEach` / `@AfterEach` | 测试前后 |
+| `@BeforeAll` / `@AfterAll` | 测试类前后 |
+
+## 速查表
+
+按场景分类：
+
+| 场景 | 注解 |
+|------|------|
+| Controller | `@RestController`, `@RequestMapping`, `@GetMapping`, `@PostMapping` |
+| 接收参数 | `@PathVariable`, `@RequestParam`, `@RequestBody`, `@RequestHeader`, `@CookieValue` |
+| 注入依赖 | `@Autowired`, `@Resource`, `@Qualifier` |
+| 注册 Bean | `@Component`, `@Service`, `@Repository`, `@Configuration`, `@Bean`, `@MapperScan` |
+| 读配置 | `@Value`, `@ConfigurationProperties`, `@PropertySource` |
+| 事务/异步 | `@Transactional`, `@Async`, `@Scheduled`, `@Cacheable` |
+| 参数校验 | `@Valid`, `@NotNull`, `@Size`, `@Email` |
+| AOP | `@Aspect`, `@Before`, `@After`, `@Around` |
+| 测试 | `@SpringBootTest`, `@Test`, `@MockBean` |
+
+## 我整理完这个表的小心得
+
+1. **注解本质就是标记**——告诉 Spring 框架"这是什么、该怎么处理"
+2. **`@Component` 是万金油**——其他 `@Service` `@Repository` 都是语义化的它
+3. **按名 vs 按类型注入**——`@Autowired` 默认按类型，多实现类时用 `@Qualifier` 按名字
+4. **`@ConfigurationProperties` 比一堆 `@Value` 优雅**——配置多时强烈推荐
+5. **`@Transactional` 写在 Service 不要写 Controller**——事务边界应该是业务层
+
+## 下一步
+
+下一篇准备写 **JDBC 第一个完整例子**——SpringBoot 和 MyBatis-Plus 帮我藏了太多细节，自己用纯 JDBC 写一遍才明白"框架到底干了什么"。

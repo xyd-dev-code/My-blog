@@ -1,0 +1,542 @@
+---
+title: "Vue 3 第一个组件 — 从 CDN 引入到组件化的全过程"
+description: "前端小白第一次写 Vue 3。从新建 HTML 文件引入 CDN，到写一个能算加法的组件，再到用 Vite 建项目。每个步骤具体在 IDEA / 浏览器里点哪里。"
+pubDate: 2024-10-23
+tags: ["Vue", "前端", "笔记", "入门"]
+---
+
+## 起因
+
+下学期的项目要前后端打通，老师让先学前端框架。
+
+之前只用过 jQuery，听说 Vue 3 是"渐进式框架"，但不知道"渐进"是什么意思。
+
+> "从最简单的 CDN 引入开始，写一个能计算加法的组件。别上来就 `npm create vite`——太多东西会懵。"
+
+这篇是完整的"零基础到第一个 Vue 组件"过程。
+
+## 第一步：最原始的方式 — CDN 引入
+
+新建一个 HTML 文件 `hello-vue.html`：
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>第一个 Vue 组件</title>
+</head>
+<body>
+    <!-- 1. 引入 Vue 3 的 CDN -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <!-- 2. Vue 控制的区域 -->
+    <div id="app">
+        <!-- {{ }} 是插值表达式，显示 data 里的变量 -->
+        <h1>{{ message }}</h1>
+        
+        <button @click="changeMessage">点我</button>
+    </div>
+    
+    <!-- 3. 创建 Vue 应用 -->
+    <script>
+        const { createApp } = Vue;
+        
+        createApp({
+            data() {
+                return {
+                    message: 'Hello Vue 3!'
+                };
+            },
+            methods: {
+                changeMessage() {
+                    this.message = '你点了按钮！';
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
+```
+
+**直接双击 HTML 文件用浏览器打开**，看到：
+
+- 大字显示 "Hello Vue 3!"
+- 下面一个按钮 "点我"
+- 点一下按钮，文字变成 "你点了按钮！"
+
+我当时盯着看了 5 秒钟——**就这么简单？**
+
+## 我当时的几个"恍然大悟"
+
+### 1. 不用操作 DOM
+
+之前 jQuery 是这样：
+
+```javascript
+$('#message').text('新内容');
+```
+
+Vue 是这样：
+
+```html
+<h1>{{ message }}</h1>
+```
+
+```javascript
+this.message = '新内容';  // 改了变量，页面自动更新
+```
+
+**Vue 自动追踪依赖、自动更新 DOM**——这就是"响应式"。
+
+### 2. 数据驱动视图
+
+之前写代码流程是"操作 DOM → 数据变化"。
+
+Vue 流程是"数据变化 → 视图自动更新"。
+
+**把心思放在数据上，DOM 让 Vue 处理**。
+
+### 3. `{{ }}` 是插值
+
+```html
+<h1>{{ message }}</h1>
+```
+
+`{{ message }}` 显示 `message` 变量的值。改了变量，文字自动变。
+
+## 第二步：写一个能算加法的组件
+
+新建 `calculator.html`：
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Vue 加法计算器</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body>
+    <div id="app">
+        <h2>Vue 加法计算器</h2>
+        
+        <input type="number" v-model.number="a" placeholder="第一个数">
+        +
+        <input type="number" v-model.number="b" placeholder="第二个数">
+        =
+        <span class="result">{{ result }}</span>
+        
+        <p>说明：{{ a }} + {{ b }} = {{ result }}</p>
+    </div>
+    
+    <script>
+        const { createApp, computed } = Vue;
+        
+        createApp({
+            data() {
+                return {
+                    a: 0,
+                    b: 0
+                };
+            },
+            computed: {
+                result() {
+                    return this.a + this.b;
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
+```
+
+浏览器打开，两个输入框输数字，**结果实时显示**。
+
+### 我当时没搞懂的两个概念
+
+**1. `v-model.number` 是什么？**
+
+```html
+<input v-model.number="a">
+```
+
+`v-model` 是双向绑定：
+
+- 输入框改 → `a` 变量自动更新
+- `a` 变量改 → 输入框自动更新
+
+`.number` 是修饰符，**自动把字符串转数字**（输入框默认返回字符串）。
+
+**2. `computed` 是什么？**
+
+```javascript
+computed: {
+    result() {
+        return this.a + this.b;
+    }
+}
+```
+
+**计算属性**。当 `a` 或 `b` 变时，`result` 自动重算。
+
+`computed` vs `methods`：
+
+| | computed | methods |
+|--|----------|---------|
+| 缓存 | **会缓存**（依赖不变不重算）| 每次调用都重算 |
+| 用法 | 当属性用 `{{ result }}` | 当方法用 `{{ result() }}` |
+| 适用 | 派生数据 | 事件处理 |
+
+**计算属性有缓存，性能更好**。
+
+## 第三步：组件化
+
+把加法器抽成独立组件。新建 `my-component.html`：
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Vue 组件化</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- 3. 使用组件 -->
+        <h1>{{ message }}</h1>
+        <my-calculator></my-calculator>
+        <my-calculator></my-calculator>  <!-- 用两次 -->
+    </div>
+    
+    <!-- 1. 定义组件 -->
+    <script>
+        const { createApp } = Vue;
+        
+        // 定义一个加法器组件
+        const MyCalculator = {
+            template: `
+                <div class="calc">
+                    <input type="number" v-model.number="a">
+                    +
+                    <input type="number" v-model.number="b">
+                    = <span>{{ a + b }}</span>
+                </div>
+            `,
+            data() {
+                return {
+                    a: 0,
+                    b: 0
+                };
+            }
+        };
+        
+        // 2. 注册组件并挂载
+        const app = createApp({
+            data() {
+                return { message: '组件化示例' };
+            }
+        });
+        
+        app.component('my-calculator', MyCalculator);  // 全局注册
+        app.mount('#app');
+    </script>
+</body>
+</html>
+```
+
+**用两次 `<my-calculator>`**，两个加法器**互不干扰**——每个组件有自己的 `a` 和 `b`。
+
+### 组件化的好处
+
+1. **可复用**：写一次，到处用
+2. **隔离**：每个组件的状态独立
+3. **可维护**：把复杂 UI 拆成小块
+
+## 第四步：用 Vite 建项目（标准方式）
+
+CDN 引入只适合学习，**真实项目都用构建工具**。
+
+### 1. 检查 Node.js
+
+```bash
+node -v
+# v20.10.0  （需要 16+）
+npm -v
+# 10.2.3
+```
+
+没有就去 https://nodejs.org 下载。
+
+### 2. 用 Vite 创建项目
+
+```bash
+npm create vite@latest my-vue-app -- --template vue
+```
+
+参数说明：
+
+- `my-vue-app`：项目名
+- `--template vue`：Vue 3 模板（`vue-ts` 是 TypeScript 版）
+
+进入项目：
+
+```bash
+cd my-vue-app
+npm install
+npm run dev
+```
+
+看到：
+
+```
+  VITE v5.4.10  ready in 500 ms
+
+  ➜  Local:   http://localhost:5173/
+```
+
+浏览器打开 `http://localhost:5173/`：
+
+**看到了一个 Vue 3 的欢迎页面**。
+
+### 3. 项目结构
+
+```
+my-vue-app/
+├── index.html               ← 入口 HTML
+├── package.json
+├── vite.config.js
+├── public/
+└── src/
+    ├── main.js              ← 入口 JS
+    ├── App.vue              ← 根组件
+    ├── components/          ← 自定义组件
+    │   └── HelloWorld.vue
+    └── assets/
+```
+
+### 4. 单文件组件 SFC
+
+`src/App.vue`：
+
+```vue
+<template>
+  <!-- HTML 部分 -->
+  <div id="app">
+    <h1>{{ message }}</h1>
+    <Calculator />
+  </div>
+</template>
+
+<script>
+// JS 部分
+import Calculator from './components/Calculator.vue';
+
+export default {
+  name: 'App',
+  components: { Calculator },
+  data() {
+    return {
+      message: '我的第一个 Vite 项目'
+    };
+  }
+};
+</script>
+
+<style>
+/* CSS 部分 */
+h1 {
+  color: #42b983;
+}
+</style>
+```
+
+`.vue` 文件 = **HTML + JS + CSS 三合一**——这就是 SFC（Single File Component）。
+
+### 5. 写第一个 .vue 组件
+
+新建 `src/components/Calculator.vue`：
+
+```vue
+<template>
+  <div class="calculator">
+    <input type="number" v-model.number="a">
+    +
+    <input type="number" v-model.number="b">
+    = <span class="result">{{ a + b }}</span>
+  </div>
+</template>
+
+<script>
+export default {
+  name: 'Calculator',
+  data() {
+    return {
+      a: 0,
+      b: 0
+    };
+  }
+};
+</script>
+
+<style scoped>
+.calculator {
+  padding: 20px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+}
+
+input {
+  width: 80px;
+  padding: 5px;
+}
+
+.result {
+  color: #42b983;
+  font-weight: bold;
+  font-size: 20px;
+  margin-left: 5px;
+}
+</style>
+```
+
+`scoped` 关键字表示样式只对当前组件生效，**不会影响别的组件**。
+
+### 6. 保存自动刷新
+
+Vite 有热更新（HMR），改 `.vue` 文件**浏览器自动刷新**——不用手动刷新。
+
+## 我当时的几个困惑
+
+### 1. `data` 为什么是函数不是对象？
+
+```javascript
+data() {
+    return { a: 0, b: 0 };
+}
+```
+
+**组件可能被复用多次**。每次复用要创建新的 data 对象，所以用函数返回。
+
+如果用对象：
+
+```javascript
+data: { a: 0 }  // ❌ 所有实例共享一个 data
+```
+
+两个 `<Calculator>` 改一个会影响另一个。
+
+### 2. `methods` 里的 `this` 是什么？
+
+```javascript
+methods: {
+    changeMessage() {
+        this.message = '新内容';  // this 是当前组件实例
+    }
+}
+```
+
+`this` 自动指向**当前组件**，不用管是哪个。
+
+**箭头函数不能用**——箭头函数的 `this` 是定义时的，不是组件实例：
+
+```javascript
+methods: {
+    changeMessage: () => {
+        this.message = 'xxx';  // ❌ this 不是组件实例
+    }
+}
+```
+
+### 3. 为什么组件名要 `PascalCase`？
+
+```javascript
+export default {
+    name: 'Calculator'  // PascalCase（大驼峰）
+}
+```
+
+```html
+<Calculator />  <!-- 也用大驼峰 -->
+```
+
+Vue 自动转 `<calculator>` → `<Calculator>`。
+
+## 用 Composition API（Vue 3 新写法）
+
+刚才用的是 Options API（Vue 2 风格）。Vue 3 推荐 Composition API：
+
+```vue
+<template>
+  <div>
+    <input type="number" v-model.number="a">
+    +
+    <input type="number" v-model.number="b">
+    = {{ result }}
+  </div>
+</template>
+
+<script setup>
+// 不用 export default，更简洁
+import { ref, computed } from 'vue';
+
+const a = ref(0);
+const b = ref(0);
+const result = computed(() => a.value + b.value);
+</script>
+```
+
+**`<script setup>` 是 Vue 3 的语法糖**，代码量少一半。
+
+我对比下来发现：
+
+- Options API：结构清晰，适合初学者
+- Composition API：更灵活，适合复杂组件
+
+**新项目建议用 Composition API**。
+
+## 我跑通后的小体会
+
+### 1. Vue 的学习曲线
+
+- 入门 5 分钟：CDN 引入，写个变量显示
+- 进阶 1 小时：组件、事件、计算属性
+- 实战 1 天：Vue Router、Pinia、Axios
+
+比 React 简单（个人观点）。
+
+### 2. 工具链很关键
+
+- Vite：开发服务器，比 webpack 快 10 倍
+- Vue DevTools：浏览器插件，看组件树和状态
+- VSCode + Vetur 插件：.vue 文件语法高亮
+
+### 3. 组件命名规范
+
+- 文件名：`PascalCase.vue`（如 `Calculator.vue`）
+- 注册名：`kebab-case` 或 `PascalCase`
+- 用法：`<Calculator />` 或 `<calculator />`
+
+## 几个常用的 Vue 指令
+
+| 指令 | 作用 | 例子 |
+|------|------|------|
+| `v-model` | 双向绑定 | `<input v-model="msg">` |
+| `v-if` / `v-else` | 条件渲染 | `<div v-if="show">` |
+| `v-for` | 列表渲染 | `<li v-for="item in list">` |
+| `v-bind(:)` | 属性绑定 | `<img :src="url">` |
+| `v-on(@)` | 事件绑定 | `<button @click="handler">` |
+| `v-show` | 显示/隐藏（display）| `<div v-show="show">` |
+
+### `v-if` vs `v-show`
+
+| | v-if | v-show |
+|--|------|--------|
+| 渲染 | 条件为 false 时**不渲染** | 一直渲染，**只切 display** |
+| 切换开销 | 高（重新创建）| 低（改 CSS）|
+| 适用 | 很少切换 | 频繁切换 |
+
+## 下一步
+
+下一篇准备写 **Linux 基础运维**——服务器要部署，光会写代码不够。第一次连服务器装 JDK / 配环境变量 / 启项目，把过程全记下来。

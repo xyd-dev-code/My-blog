@@ -1,0 +1,579 @@
+---
+title: "亚信实习 Week 1 — 第一次看用户鉴权模块，拦截器链是这么设计的"
+description: "看公司业务支撑系统的 user 模块：登录、token、拦截器链、权限校验。和学校项目对比，哪些设计我之前没想到。完整的阅读笔记 + 3 个具体的细节（ThreadLocal、注解 + AOP 双鉴权、异常体系）。"
+pubDate: 2025-12-16
+tags: ["实习", "亚信科技", "用户鉴权", "AOP"]
+---
+
+## 起因
+
+入职第一周，导师 W 哥让我看 `user-module`。
+
+任务：搞清楚：
+
+- 用户登录怎么走
+- token 怎么生成、怎么校验
+- 拦截器做了什么
+- 权限怎么控制
+
+**周三讲给 W 哥听**。
+
+我花了两天半把代码看了 3 遍，越看越觉得——**公司代码的细节是真的有道理的**。
+
+这篇记我看懂的、和学校项目不一样的地方。
+
+## 整体结构
+
+```
+HTTP 请求
+    ↓
+[Filter: CorsFilter / XssFilter]
+    ↓
+[Interceptor: LoginInterceptor]    ← 看是否登录
+    ↓
+[Interceptor: PermissionInterceptor] ← 校验权限
+    ↓
+[Controller]
+    ↓
+[AOP: OperationLogAspect]          ← 记日志
+    ↓
+Service / Mapper
+```
+
+**和学校的差别**：
+
+1. **Filter 在最外层** —— 处理跨域、XSS（学校时压根没处理过 XSS）
+2. **拦截器分两层** —— 登录拦截和权限拦截分开（学校时合一个）
+3. **AOP 单独切日志** —— 不在业务代码里写日志（学校时每个方法都 `log.info`）
+
+## 第一个细节：ThreadLocal 存当前用户
+
+`UserContext.java`：
+
+```java
+public class UserContext {
+
+    private static final ThreadLocal<Long> USER_ID = new ThreadLocal<>();
+    private static final ThreadLocal<List<String>> ROLES = new ThreadLocal<>();
+    private static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();
+
+    public static void setUser(Long userId, List<String> roles) {
+        USER_ID.set(userId);
+        ROLES.set(roles);
+    }
+
+    public static Long getCurrentUserId() {
+        return USER_ID.get();
+    }
+
+    public static List<String> getCurrentRoles() {
+        return ROLES.get();
+    }
+
+    public static void clear() {
+        USER_ID.remove();
+        ROLES.remove();
+        REQUEST_ID.remove();
+    }
+}
+```
+
+**和我之前电脑商城写的几乎一样** —— 唯一多的是**多变量**（userId、roles、requestId），三个一起 set / remove。
+
+**W 哥 review 我电脑商城博客的代码时挑出来的问题**：
+
+1. **`afterCompletion` 里 clear** —— 我之前电脑商城就是这么写的，公司也这么写
+2. **不要在 finally 里 clear**（之前电脑商城差点踩坑）—— 否则抛异常时没法定位
+
+**这点公司和我之前理解的相同。**
+
+但有个**细节我之前漏了** —— **`REQUEST_ID`**。
+
+W 哥说：
+
+> "**每个请求生成一个 UUID**，**贯穿整条调用链**。**日志里打这个 ID**，**能搜出一整条链路**。"
+
+实际用一个 Filter 实现：
+
+```java
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class RequestIdFilter extends OncePerRequestFilter {
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest req, HttpServletResponse resp, FilterChain chain)
+            throws ServletException, IOException {
+        String requestId = UUID.randomUUID().toString().replace("-", "");
+        MDC.put("requestId", requestId);  // SLF4J 的 MDC
+        try {
+            chain.doFilter(req, resp);
+        } finally {
+            MDC.clear();
+        }
+    }
+}
+```
+
+`logback.xml` 里配：
+
+```xml
+<pattern>%d{HH:mm:ss.SSS} [%thread] [requestId=%X{requestId}] %-5level %logger{36} - %msg%n</pattern>
+```
+
+**日志里自动带 `[requestId=xxx]`**，**一搜能搜出整条链路的日志**。
+
+**学校项目完全没这么做过** —— 这点学到了。
+
+## 第二个细节：登录拦截器 + 权限拦截器分两个
+
+`LoginInterceptor.java`：
+
+```java
+@Component
+public class LoginInterceptor implements HandlerInterceptor {
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+        // OPTIONS 请求直接放行（CORS 预检）
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+
+        // 白名单：登录接口、注册接口、健康检查
+        String uri = request.getRequestURI();
+        if (isWhitelist(uri)) {
+            return true;
+        }
+
+        // 从 header 取 token
+        String token = request.getHeader("Authorization");
+        if (token == null || !token.startsWith("Bearer ")) {
+            throw new BusinessException(ErrorCode.NOT_LOGGED_IN);
+        }
+
+        token = token.substring(7);
+
+        try {
+            Long userId = jwtUtil.parseUserId(token);
+            List<String> roles = jwtUtil.parseRoles(token);
+            UserContext.setUser(userId, roles);
+            return true;
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("token 解析异常", e);
+            throw new BusinessException(ErrorCode.TOKEN_INVALID);
+        }
+    }
+
+    @Override
+    public void afterCompletion(...) {
+        UserContext.clear();
+    }
+}
+```
+
+`WebMvcConfig.java` 注册：
+
+```java
+@Configuration
+public class WebMvcConfig implements WebMvcConfigurer {
+
+    @Autowired
+    private LoginInterceptor loginInterceptor;
+
+    @Autowired
+    private PermissionInterceptor permissionInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        // 先登录拦截，再权限拦截
+        registry.addInterceptor(loginInterceptor)
+                .addPathPatterns("/**")
+                .excludePathPatterns("/login", "/register", "/health", "/doc.html", "/swagger-ui/**");
+
+        registry.addInterceptor(permissionInterceptor)
+                .addPathPatterns("/**")
+                .excludePathPatterns("/login", "/register", "/health", "/doc.html", "/swagger-ui/**");
+    }
+}
+```
+
+**这里有个陷阱我之前电脑商城踩过**：
+
+我电脑商城写的：**用注解 `@RequiresLogin` 标记需要登录的接口**。
+
+W 哥解释公司为啥用拦截器：
+
+> "**业务支撑系统 90% 接口都要登录**，**只有登录、注册、健康检查白名单**。**用全局拦截器更简单**。**注解适合 10% 才需要登录的场景**。"
+
+**学到的**：**拦截器 vs 注解，按场景选，不要一刀切**。
+
+## 第三个细节：@RequiresPermission 注解 + AOP
+
+公司**两种权限控制**并存：
+
+1. **拦截器层**：检查"是否登录"（粗粒度）
+2. **AOP 层**：检查"有没有某个权限"（细粒度）
+
+`@RequiresPermission` 注解：
+
+```java
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface RequiresPermission {
+
+    /** 权限编码，例如 "user:create"、"order:export" */
+    String value();
+
+    /** 是否所有角色都需要拥有该权限（默认 false：任一角色满足即可） */
+    boolean requireAll() default false;
+}
+```
+
+用法：
+
+```java
+@PostMapping("/users")
+@RequiresPermission("user:create")
+public Result<Void> createUser(@RequestBody UserDTO dto) {
+    // ...
+}
+
+@PostMapping("/orders/export")
+@RequiresPermission(value = {"order:export", "data:export"}, requireAll = true)
+public Result<String> exportOrders(@RequestBody ExportRequest req) {
+    // ...
+}
+```
+
+切面：
+
+```java
+@Aspect
+@Component
+@Order(Ordered.LOWEST_PRECEDENCE)  // 拦截器之后才执行
+public class PermissionAspect {
+
+    @Before("@annotation(requiresPermission)")
+    public void check(JoinPoint point, RequiresPermission requiresPermission) {
+        List<String> userRoles = UserContext.getCurrentRoles();
+        if (userRoles == null || userRoles.isEmpty()) {
+            throw new BusinessException(ErrorCode.NOT_LOGGED_IN);
+        }
+
+        String[] required = requiresPermission.value().split(",");
+        if (requiresPermission.requireAll()) {
+            // 所有权限都要有
+            for (String perm : required) {
+                if (!hasPermission(userRoles, perm)) {
+                    throw new BusinessException(ErrorCode.NO_PERMISSION, "缺少权限: " + perm);
+                }
+            }
+        } else {
+            // 任一权限满足即可
+            boolean anyMatch = false;
+            for (String perm : required) {
+                if (hasPermission(userRoles, perm)) {
+                    anyMatch = true;
+                    break;
+                }
+            }
+            if (!anyMatch) {
+                throw new BusinessException(ErrorCode.NO_PERMISSION, "缺少权限");
+            }
+        }
+    }
+
+    private boolean hasPermission(List<String> roles, String permission) {
+        // 查角色权限映射：role -> permissions
+        // 简化：实际是 Redis 缓存 + DB 兜底
+        for (String role : roles) {
+            List<String> perms = permissionService.getPermissionsByRole(role);
+            if (perms.contains(permission)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+```
+
+**为什么要这样设计**？
+
+W 哥：
+
+> "**权限判定要查 Redis + DB**。**如果每次都在拦截器里查，太多接口都用不到**。**所以：登录状态走拦截器**（**每个接口都要查，开销小**），**权限走 AOP**（**只有标注的接口才查**）。"
+
+**拦截器 + AOP 配合**，**避免每个请求都查权限**。
+
+## 第四个细节：异常体系
+
+业务支撑系统有一套完整的异常体系：
+
+```java
+public class BusinessException extends RuntimeException {
+
+    private final int code;
+    private final String message;
+
+    public BusinessException(ErrorCode errorCode) {
+        super(errorCode.getMessage());
+        this.code = errorCode.getCode();
+    }
+
+    public BusinessException(ErrorCode errorCode, String detail) {
+        super(errorCode.getMessage() + ": " + detail);
+        this.code = errorCode.getCode();
+    }
+
+    public int getCode() { return code; }
+
+    @Override
+    public String getMessage() {
+        return super.getMessage();
+    }
+}
+```
+
+`ErrorCode.java` 枚举：
+
+```java
+public enum ErrorCode {
+    // 1xxxx 通用
+    SUCCESS(0, "成功"),
+    PARAM_INVALID(1001, "参数不合法"),
+    NOT_LOGGED_IN(1002, "未登录"),
+    NO_PERMISSION(1003, "无权限"),
+    TOKEN_EXPIRED(1004, "token 已过期"),
+    TOKEN_INVALID(1005, "token 无效"),
+
+    // 2xxxx 用户模块
+    USER_NOT_FOUND(2001, "用户不存在"),
+    USER_PASSWORD_ERROR(2002, "用户名或密码错误"),
+    USER_DISABLED(2003, "账号已停用"),
+
+    // 3xxxx 业务模块
+    ORDER_NOT_FOUND(3001, "订单不存在"),
+
+    // 5xxxx 系统
+    SYSTEM_ERROR(5000, "系统繁忙，请稍后再试");
+
+    private final int code;
+    private final String message;
+
+    ErrorCode(int code, String message) {
+        this.code = code;
+        this.message = message;
+    }
+
+    public int getCode() { return code; }
+    public String getMessage() { return message; }
+}
+```
+
+**几个细节**：
+
+1. **错误码分模块**（1/2/3/4/5 开头）—— 方便定位是哪个模块的错
+2. **错误信息统一** —— 不用每个地方写自己的文案
+3. **`SYSTEM_ERROR` 用通用文案** —— 不暴露异常详情给用户
+
+全局异常处理：
+
+```java
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(BusinessException.class)
+    public Result<Void> handleBusiness(BusinessException e) {
+        log.warn("业务异常: code={}, msg={}", e.getCode(), e.getMessage());
+        return Result.fail(e.getCode(), e.getMessage());
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Result<Void> handleValidation(MethodArgumentNotValidException e) {
+        String firstError = e.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(FieldError::getDefaultMessage)
+                .orElse("参数校验失败");
+        return Result.fail(ErrorCode.PARAM_INVALID.getCode(), firstError);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public Result<Void> handleException(Exception e) {
+        log.error("系统异常", e);  // 详细日志
+        return Result.fail(ErrorCode.SYSTEM_ERROR.getCode(), ErrorCode.SYSTEM_ERROR.getMessage());
+    }
+}
+```
+
+**和电脑商城对比**：
+
+| 维度 | 我电脑商城写的 | 公司写的 |
+|------|----------------|----------|
+| 错误码 | `400`、`500` 自己写 | 枚举统一管理 |
+| 异常类 | 业务异常简单 | ErrorCode + BusinessException 分两层 |
+| 全局处理 | 有 | 有，但**日志更详细** |
+| 用户看到的错 | 直接 `e.getMessage()` | 友好文案 |
+
+**特别是 `SYSTEM_ERROR`** —— 公司写的是"系统繁忙，请稍后再试"，**没有把异常详情暴露给前端**（细节保护）。
+
+## 第五个细节：Controller 没有 `try-catch`
+
+```java
+@RestController
+@RequestMapping("/api/users")
+@Tag(name = "用户管理")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @PostMapping
+    @Operation(summary = "创建用户")
+    @RequiresPermission("user:create")
+    @LogOperation("创建用户")
+    public Result<Long> createUser(@Valid @RequestBody UserCreateDTO dto) {
+        return Result.ok(userService.createUser(dto));
+    }
+}
+```
+
+**没有 `try-catch`** —— **异常直接抛**，由 `GlobalExceptionHandler` 统一处理。
+
+我电脑商城早期版本每个 Controller 都写 `try-catch`，后来改成全局，**这点已经对齐**。
+
+**但 `@LogOperation` 我电脑商城没用过** —— 这是 AOP 记日志的注解：
+
+```java
+@Aspect
+@Component
+public class OperationLogAspect {
+
+    private static final Logger log = LoggerFactory.getLogger("OPERATION_LOG");
+
+    @Around("@annotation(logOp)")
+    public Object around(ProceedingJoinPoint pjp, LogOperation logOp) throws Throwable {
+        long start = System.currentTimeMillis();
+        Object result = null;
+        Throwable error = null;
+        try {
+            result = pjp.proceed();
+            return result;
+        } catch (Throwable e) {
+            error = e;
+            throw e;
+        } finally {
+            long cost = System.currentTimeMillis() - start;
+            OperationLog logEntity = new OperationLog();
+            logEntity.setOperator(UserContext.getCurrentUserId());
+            logEntity.setOperation(logOp.value());
+            logEntity.setCost(cost);
+            logEntity.setSuccess(error == null);
+            logEntity.setErrorMessage(error == null ? null : error.getMessage());
+            logEntity.setCreateTime(LocalDateTime.now());
+            operationLogService.asyncSave(logEntity);  // 异步保存
+        }
+    }
+}
+```
+
+**和电脑商城的一样**，**但加了个异步保存** —— **避免日志阻塞业务**。
+
+`asyncSave` 写法：
+
+```java
+@Async
+public void asyncSave(OperationLog logEntity) {
+    try {
+        operationLogMapper.insert(logEntity);
+    } catch (Exception e) {
+        log.warn("操作日志保存失败", e);
+        // 不抛：日志保存失败不影响业务
+    }
+}
+```
+
+**要点**：日志保存失败**不让业务感知** —— 这是细节。
+
+## 我周三给 W 哥讲的几个点
+
+W 哥让我"给他讲业务"，不是"读代码"，**是要看我自己懂不懂**。
+
+我准备了一页 PPT：
+
+1. **登录流程**：输入用户密码 → JwtUtil.generate → 返回 token → 前端存 localStorage → 每次请求带 Authorization Header
+2. **token 校验**：拦截器从 Header 取 → JwtUtil.parseUserId → 失败抛 TOKEN_EXPIRED 或 TOKEN_INVALID → 全局异常处理返回
+3. **当前用户怎么传给 Service**：ThreadLocal（UserContext）→ 拦截器 setUser → Service 里 getCurrentUserId → 拦截器 afterCompletion clear
+4. **权限控制**：拦截器只判登录、AOP 判细粒度权限 → 避免每个请求都查权限表
+5. **异常体系**：ErrorCode 枚举 + BusinessException + GlobalExceptionHandler → 统一文案
+
+W 哥听完说：
+
+> "**讲得清楚**。**你之前做的电脑商城项目思路是对的**，**只是细节不够**。**现在知道为啥要先看代码了吧**。"
+
+## 几个让我印象深刻的细节
+
+### 1. 拦截器顺序敏感
+
+`registry.addInterceptor(...)` 的顺序很重要 —— **前面注册的先执行**。
+
+公司代码：先 Login，后 Permission，**反过来会先判权限再判登录**（如果没登录，权限判一定失败）。
+
+### 2. OPTIONS 请求放行
+
+CORS 预检请求 method 是 OPTIONS，**没 token**，**必须放行**，否则前端跨域请求都失败。
+
+我电脑商城时 `WebConfig` 配 CORS 就够了，**没显式处理 OPTIONS**。公司这写法**更稳健**。
+
+### 3. 异步日志要捕获所有异常
+
+```java
+@Async
+public void asyncSave(...) {
+    try { ... } catch (Exception e) { ... }  // 不能抛
+}
+```
+
+**异步任务里抛异常 → 主线程感知不到** —— **必须自己消化**。
+
+我电脑商城没用 `@Async`，**也没意识到这个坑**。
+
+### 4. ThreadLocal 一定要在 finally 里 clear
+
+Tomcat 用线程池，**请求结束线程不销毁**，**变量不清就泄露**。
+
+公司写得更严格 —— **不仅用户信息清，连 requestId 一起清**。
+
+## 第一周看完代码的几个反思
+
+### 1. "看代码"比"写代码"难
+
+W 哥说"看代码"的意思不是"读"，是：
+
+- **理解业务**（这个接口是给谁用的）
+- **理解设计**（为啥这样设计）
+- **找问题**（哪里可能踩坑）
+
+我之前看代码很快，**但只是"过了一遍"，不是"看懂了"**。
+
+### 2. 公司代码的"细节"都是有讲究的
+
+不是"过度设计"，是**踩过坑后总结出来的**。
+
+比如 `REQUEST_ID` —— 没出问题时觉得多余，**线上故障排查时是真救命**。
+
+### 3. 别照搬学校项目
+
+我电脑商城有些写法在公司代码里出现 —— **比如 ThreadLocal 存用户、AOP 记日志**。
+
+**但措辞、异常处理、注释都要改** —— 否则 code review 会被打回。
+
+## 下一步
+
+下一篇准备写 **亚信实习 Month 1 — 第一次用 Linux 查生产日志定位空指针**：导师给了一个 P2 工单，**生产报空指针**。我从查日志、定位代码、改 bug、走 git flow 上线的完整过程。

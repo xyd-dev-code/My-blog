@@ -1,0 +1,583 @@
+---
+title: "电脑商城 Day 2-3 — 用户注册登录、JWT 鉴权、密码加密"
+description: "用户模块从零实现。BCrypt 密码加密、JWT 生成与校验、拦截器验证 token、注册登录完整流程。含 4 个具体踩坑（重复用户名、token 过期、JWT 密钥、JWT 解析）。"
+pubDate: 2025-06-24
+tags: ["电脑商城", "用户模块", "JWT", "SpringBoot"]
+---
+
+## 起因
+
+电脑商城 Day 2-3，做用户模块。
+
+我以为注册登录很简单，结果**踩了 4 个大坑**。这篇把"用户模块从 0 到能登录"的完整过程记下来。
+
+## 第一步：建实体类
+
+`mall-domain` 模块：
+
+```java
+@Data
+@TableName("t_user")
+public class User {
+    @TableId(type = IdType.AUTO)
+    private Long id;
+    
+    private String username;
+    private String password;  // BCrypt 加密后存这
+    private String email;
+    private String phone;
+    private String avatar;
+    private Integer status;
+    
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createdAt;
+    
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updatedAt;
+    
+    @TableLogic
+    private Integer deleted;
+}
+```
+
+`@TableLogic` 让 MyBatis-Plus 自动处理逻辑删除——所有查询加 `WHERE deleted=0`，所有 delete 改成 update。
+
+## 第二步：密码加密（第一个坑）
+
+我一开始这么写：
+
+```java
+@Service
+public class UserServiceImpl implements UserService {
+
+    @Override
+    public void register(String username, String password) {
+        User user = new User();
+        user.setUsername(username);
+        user.setPassword(password);  // 直接存明文！
+        userMapper.insert(user);
+    }
+}
+```
+
+存明文密码——**老师 review 直接打回**。
+
+> "你这密码明文存数据库？拖库了用户全完蛋。"
+
+**正解**：用 BCrypt 加密。
+
+```xml
+<dependency>
+    <groupId>org.springframework.security</groupId>
+    <artifactId>spring-security-crypto</artifactId>
+</dependency>
+```
+
+```java
+@Service
+public class UserServiceImpl implements UserService {
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Override
+    public void register(String username, String password) {
+        // 1. 查重
+        User exist = userMapper.selectByUsername(username);
+        if (exist != null) {
+            throw new BusinessException(400, "用户名已存在");
+        }
+
+        // 2. 加密
+        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+        String hashed = encoder.encode(password);
+
+        // 3. 入库
+        User user = new User();
+        user.setUsername(username);
+        user.setPassword(hashed);
+        userMapper.insert(user);
+    }
+
+    @Override
+    public String login(String username, String password) {
+        // 1. 查用户
+        User user = userMapper.selectByUsername(username);
+        if (user == null) {
+            throw new BusinessException(400, "用户名或密码错误");  // 不暴露"用户不存在"
+        }
+
+        // 2. 验密
+        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+        if (!encoder.matches(password, user.getPassword())) {
+            throw new BusinessException(400, "用户名或密码错误");
+        }
+
+        // 3. 生成 token
+        return jwtUtil.generate(user.getId());
+    }
+}
+```
+
+### BCrypt 的几个特点
+
+**1. 不可逆**：不能从 hash 反推明文
+
+**2. 每次加密结果不一样**（盐值随机）：
+
+```
+$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+$2a$10$abcdEFGHijklmnopQRSTuvwxyz0123456789ABCDEFGHIJKLMN
+```
+
+同样密码 "123456"，两次 hash 完全不一样。**但 matches 能验证**。
+
+**3. 可调强度**：
+
+```java
+new BCryptPasswordEncoder(10)  // 强度 10，默认
+new BCryptPasswordEncoder(12)  // 强度 12，更慢但更安全
+```
+
+**生产环境用 10-12**。
+
+## 第三步：JWT 生成和校验
+
+加依赖：
+
+```xml
+<dependency>
+    <groupId>io.jsonwebtoken</groupId>
+    <artifactId>jjwt-api</artifactId>
+    <version>0.12.5</version>
+</dependency>
+<dependency>
+    <groupId>io.jsonwebtoken</groupId>
+    <artifactId>jjwt-impl</artifactId>
+    <version>0.12.5</version>
+    <scope>runtime</scope>
+</dependency>
+<dependency>
+    <groupId>io.jsonwebtoken</groupId>
+    <artifactId>jjwt-jackson</artifactId>
+    <version>0.12.5</version>
+    <scope>runtime</scope>
+</dependency>
+```
+
+JWT 工具类：
+
+```java
+@Component
+public class JwtUtil {
+
+    @Value("${jwt.secret}")
+    private String secret;
+
+    @Value("${jwt.expiration}")
+    private Long expiration;  // 毫秒
+
+    public String generate(Long userId) {
+        Date now = new Date();
+        Date expiry = new Date(now.getTime() + expiration);
+
+        return Jwts.builder()
+            .subject(String.valueOf(userId))
+            .issuedAt(now)
+            .expiration(expiry)
+            .signWith(Keys.hmacShaKeyFor(secret.getBytes()))
+            .compact();
+    }
+
+    public Long parseUserId(String token) {
+        Claims claims = Jwts.parser()
+            .verifyWith(Keys.hmacShaKeyFor(secret.getBytes()))
+            .build()
+            .parseSignedClaims(token)
+            .getPayload();
+
+        return Long.parseLong(claims.getSubject());
+    }
+}
+```
+
+`application.yml`：
+
+```yaml
+jwt:
+  secret: your-256-bit-secret-key-must-be-long-enough-for-hs256
+  expiration: 86400000  # 24 小时
+```
+
+### 第二个坑：JWT secret 太短
+
+启动报：
+
+```
+WeakKeyException: The HMAC key must be at least 256 bits
+```
+
+**原因**：HS256 算法要求密钥至少 256 位（32 字节）。
+
+**正解**：密钥长度至少 32 个字符。
+
+```yaml
+jwt:
+  secret: this-is-a-256-bit-secret-key-for-hs256-jwt-token
+```
+
+或者从环境变量读：
+
+```yaml
+jwt:
+  secret: ${JWT_SECRET:default-dev-only-secret-256-bit-key}
+```
+
+## 第四步：Controller
+
+```java
+@RestController
+@RequestMapping("/api/auth")
+@Tag(name = "用户认证")
+public class AuthController {
+
+    @Autowired
+    private UserService userService;
+
+    @PostMapping("/register")
+    @Operation(summary = "用户注册")
+    public Result<Void> register(@RequestBody RegisterRequest req) {
+        userService.register(req.getUsername(), req.getPassword());
+        return Result.ok();
+    }
+
+    @PostMapping("/login")
+    @Operation(summary = "用户登录")
+    public Result<String> login(@RequestBody LoginRequest req) {
+        String token = userService.login(req.getUsername(), req.getPassword());
+        return Result.ok(token);
+    }
+
+    @GetMapping("/me")
+    @Operation(summary = "获取当前用户信息")
+    public Result<UserVO> me() {
+        Long userId = UserContext.getCurrentUserId();  // 从 ThreadLocal 取
+        return Result.ok(userService.getById(userId));
+    }
+}
+```
+
+### 第三个坑：ThreadLocal 跨线程丢失
+
+我用了 `ThreadLocal<Long>` 存当前登录用户 ID：
+
+```java
+public class UserContext {
+    private static final ThreadLocal<Long> CURRENT_USER = new ThreadLocal<>();
+
+    public static void setCurrentUser(Long id) {
+        CURRENT_USER.set(id);
+    }
+
+    public static Long getCurrentUserId() {
+        return CURRENT_USER.get();
+    }
+
+    public static void clear() {
+        CURRENT_USER.remove();
+    }
+}
+```
+
+拦截器：
+
+```java
+@Component
+public class AuthInterceptor implements HandlerInterceptor {
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, 
+                             Object handler) throws Exception {
+        // 白名单
+        String path = request.getRequestURI();
+        if (path.startsWith("/api/auth/login") || path.startsWith("/api/auth/register")) {
+            return true;
+        }
+
+        // 取 token
+        String token = request.getHeader("Authorization");
+        if (token == null || !token.startsWith("Bearer ")) {
+            throw new BusinessException(401, "未登录");
+        }
+        token = token.substring(7);
+
+        try {
+            Long userId = jwtUtil.parseUserId(token);
+            UserContext.setCurrentUser(userId);
+            return true;
+        } catch (ExpiredJwtException e) {
+            throw new BusinessException(401, "token 已过期");
+        } catch (JwtException e) {
+            throw new BusinessException(401, "token 无效");
+        }
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
+                                Object handler, Exception ex) {
+        UserContext.clear();  // 关键：清 ThreadLocal，防止内存泄漏
+    }
+}
+```
+
+注册拦截器：
+
+```java
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+
+    @Autowired
+    private AuthInterceptor authInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(authInterceptor)
+                .addPathPatterns("/api/**")
+                .excludePathPatterns(
+                    "/api/auth/login",
+                    "/api/auth/register",
+                    "/api/products/**",  // 商品列表允许未登录访问
+                    "/doc.html",
+                    "/swagger-ui/**",
+                    "/v3/api-docs/**"
+                );
+    }
+}
+```
+
+**ThreadLocal 必须 remove()**——Tomcat 用线程池，**线程复用**，不 clear 会泄露上一个用户的 ID。
+
+## 第五步：测试注册登录
+
+注册：
+
+```bash
+POST /api/auth/register
+Content-Type: application/json
+
+{
+  "username": "alice",
+  "password": "pass123"
+}
+```
+
+返回：
+
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": null
+}
+```
+
+登录：
+
+```bash
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "username": "alice",
+  "password": "pass123"
+}
+```
+
+返回：
+
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIiwiaWF0IjoxNzE5MDAwMDAwLCJleHAiOjE3MTkwMDg2MDB9.abc..."
+}
+```
+
+获取当前用户：
+
+```bash
+GET /api/auth/me
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
+```
+
+返回：
+
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "id": 1,
+    "username": "alice",
+    "email": null,
+    "avatar": null,
+    "createdAt": "2025-06-24T10:00:00"
+  }
+}
+```
+
+## 第四个坑：重复注册
+
+并发场景下，两个请求同时注册同名用户：
+
+```
+请求 A：select username -> null
+请求 B：select username -> null  ← 同时执行
+请求 A：insert -> 成功
+请求 B：insert -> 失败（唯一索引冲突）
+```
+
+**方案 1**：数据库唯一索引兜底（必须）
+
+```sql
+ALTER TABLE t_user ADD UNIQUE INDEX uk_username (username);
+```
+
+**方案 2**：分布式锁
+
+```java
+RLock lock = redisson.getLock("register:" + username);
+lock.lock();
+try {
+    // 检查 + 插入
+} finally {
+    lock.unlock();
+}
+```
+
+**方案 3**：唯一索引 + 异常捕获
+
+```java
+try {
+    userMapper.insert(user);
+} catch (DuplicateKeyException e) {
+    throw new BusinessException(400, "用户名已存在");
+}
+```
+
+我选了**方案 1 + 方案 3**——简单可靠。
+
+## 几个安全相关的设计
+
+### 1. 密码强度校验
+
+```java
+public void register(String username, String password) {
+    if (password.length() < 6 || password.length() > 20) {
+        throw new BusinessException(400, "密码长度 6-20");
+    }
+    if (!password.matches(".*[a-zA-Z].*") || !password.matches(".*\\d.*")) {
+        throw new BusinessException(400, "密码必须包含字母和数字");
+    }
+    // ...
+}
+```
+
+### 2. 登录失败限制
+
+```java
+@Service
+public class UserServiceImpl {
+
+    @Autowired
+    private StringRedisTemplate redis;
+
+    public String login(String username, String password) {
+        String key = "login:fail:" + username;
+        Integer fails = redis.opsForValue().get(key) == null ? 0 
+                        : Integer.parseInt(redis.opsForValue().get(key));
+        
+        if (fails >= 5) {
+            throw new BusinessException(403, "账号已锁定，请 10 分钟后再试");
+        }
+
+        // 验证密码
+        if (!encoder.matches(password, user.getPassword())) {
+            redis.opsForValue().increment(key);
+            redis.expire(key, 10, TimeUnit.MINUTES);
+            throw new BusinessException(400, "用户名或密码错误");
+        }
+
+        // 登录成功，清失败计数
+        redis.delete(key);
+        return jwtUtil.generate(user.getId());
+    }
+}
+```
+
+**5 次失败锁 10 分钟**——防暴力破解。
+
+### 3. JWT 不存敏感信息
+
+JWT payload 用 base64 编码，**不是加密**——别人能看。
+
+```javascript
+// 别人拿到 token，base64 解码就能看 payload
+{ "sub": "1", "iat": ..., "exp": ... }
+```
+
+**不要在 JWT 里存密码、手机号等敏感信息**。
+
+### 4. Refresh Token
+
+access token 2 小时，refresh token 14 天：
+
+```java
+public String[] login(String username, String password) {
+    String accessToken = generateAccessToken(userId);
+    String refreshToken = generateRefreshToken(userId);
+    return new String[]{accessToken, refreshToken};
+}
+```
+
+前端用 access token 调接口，过期前用 refresh token 换新。
+
+## 我做完用户模块的几个心得
+
+### 1. 安全是基本功
+
+- 密码必须加密（BCrypt）
+- token 必须校验（JWT 签名）
+- 失败次数必须限制（防爆破）
+- 错误信息不能泄露（"用户不存在" → "用户名或密码错误"）
+
+### 2. 拦截器比切面更合适
+
+用户身份校验放在 `HandlerInterceptor`，**比 AOP 直观**——专门拦截 Controller 请求。
+
+AOP 适合业务横切（日志、事务），**鉴权用拦截器**。
+
+### 3. ThreadLocal 必须 clear
+
+每次请求结束必须 `UserContext.clear()`，**否则线程复用会泄露上一个用户的信息**。
+
+### 4. 不要在 JWT 里塞太多
+
+JWT 越长，每次请求 Header 越大。**只存 userId，其他信息查数据库或缓存**。
+
+### 5. 测试要覆盖异常场景
+
+- 用户名已存在
+- 密码错误
+- token 过期
+- token 伪造
+- token 无效
+
+**这些异常路径不测，生产必出事**。
+
+## 下一步
+
+下一篇准备写 **电脑商城购物车 — Redis 存购物车的完整过程**。Redis Hash 结构、用户登录态、增减商品、批量选择，全套实现。
