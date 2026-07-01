@@ -3,12 +3,17 @@ import BaseLayout from '~/layouts/BaseLayout.astro';
 import { getCollection } from 'astro:content';
 import { formatDateShort } from '~/utils/date';
 
+import { STOP_TAGS } from '~/consts';
+
 const posts = (await getCollection('posts', ({ data }) => !data.draft))
   .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
 
 const tagCounts = new Map<string, number>();
 posts.forEach((p) =>
-  (p.data.tags ?? []).forEach((t) => tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1))
+  (p.data.tags ?? []).forEach((t) => {
+    if (STOP_TAGS.has(t)) return;
+    tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+  })
 );
 const tags = Array.from(tagCounts.entries()).sort((a, b) => b[1] - a[1]);
 ---

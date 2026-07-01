@@ -2,7 +2,8 @@
 title: "电脑商城 Day 6-7 — 订单模块，事务控制踩坑实录"
 description: "下订单要扣库存、改购物车、生成订单，3 步必须原子。Spring @Transactional 用错了一行就翻车：自调用失效、异常被吞、库存超卖。含 4 个具体踩坑（事务自调用、AOP 顺序、库存超卖、RabbitMQ 异步扣库存）。"
 pubDate: 2025-07-22
-tags: ["电脑商城", "订单", "事务", "SpringBoot"]
+cover: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=800&h=420&fit=crop&auto=format&q=75"
+tags: ["project", "电脑商城", "订单", "事务", "SpringBoot"]
 ---
 
 ## 起因
