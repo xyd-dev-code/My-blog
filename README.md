@@ -1,8 +1,8 @@
 # XiaoyouDong · Tech Blog
 
-> 一个晴空主题的个人技术博客——记录学习、踩坑与项目复盘。写给未来的我、同学，以及所有路过的同行。
+> 一个晴空主题的个人技术博客——记录学习、踩坑与项目复盘。
 
-![preview](https://img.shields.io/badge/Astro-5-FF5D01?logo=astro&logoColor=white)
+![astro](https://img.shields.io/badge/Astro-5-FF5D01?logo=astro&logoColor=white)
 ![tailwind](https://img.shields.io/badge/Tailwind-3-38BDF8?logo=tailwindcss&logoColor=white)
 ![deploy](https://img.shields.io/badge/Deploy-GitHub_Pages-222?logo=githubpages&logoColor=white)
 ![license](https://img.shields.io/badge/License-MIT-0ea5e9)
@@ -11,161 +11,167 @@
 
 ## 特性
 
-- ☁️ **晴空主题** — 自研 Tailwind 调色板（sky 蓝 + cloud 白 + sun 金 + leaf 绿）+ Fraunces / Noto Serif SC 衬线标题
-- ⚡ **极致性能** — Astro 5 Islands 架构，首屏 < 50KB
-- 📝 **MDX 写作** — Markdown 里能塞 React 组件
-- 🔍 **Pagefind 全文搜索** — `Cmd/Ctrl + K` 唤起
-- 🧭 **自动 TOC** — 滚动同步高亮
-- 🌈 **代码霓虹高亮** — Shiki + github-dark-dimmed 主题
-- 💬 **Giscus 评论** — GitHub Discussions 驱动
+- ☁️ **晴空主题** — 自研 Tailwind 调色板（`sky` 蓝 + `cloud` 白 + `sun` 金 + `leaf` 绿），衬线标题 `Fraunces` + 正文 `Inter`
+- ⚡ **Astro 5 SSG** — Islands 架构，构建产物 86 页 ≈ 1.7s
+- 📝 **MDX 文章** — `src/content/posts/` 34 篇；`src/content/projects/` 3 个项目
+- 🔍 **Pagefind 全文搜索** — `Cmd/Ctrl + K` 唤起（侧栏搜索 + 命令面板）
+- 🧭 **自动 TOC** — 文章页右侧滚动同步高亮
+- 🌈 **代码霓虹高亮** — Shiki + `github-dark-dimmed` 主题（rehype-pretty-code）
+- 📊 **文章排序切换** — `/posts` 页支持「最新优先 / 开篇优先」两模式，跨页联动（客户端 JS 重排 + localStorage 持久化）
+- 🏷️ **标签过滤** — `STOP_TAGS`（`src/consts.ts`）集中过滤非技术标签；点击任意标签跳 `/tags/[tag]`
 - 📡 **RSS 订阅** — `/rss.xml`
-- 📝 **Decap CMS 在线编辑器** — 浏览器写文章，自动 commit + 自动部署
-- 🚀 **一键部署** — push → GitHub Actions → GitHub Pages
+- 🚀 **一键部署** — push `main` → GitHub Actions → GitHub Pages
 
-## 目录
+## 目录结构
 
 ```
 src/
-├── components/      # UI 组件（Header/Footer/TOC/Comments/Background/...）
-├── content/posts/   # 所有文章（MDX）
-├── layouts/         # 布局
-├── pages/           # 路由
-├── styles/global.css
-└── consts.ts        # 站点配置
+├── components/         # UI 组件
+│   ├── Background.astro      # 云朵 + 光晕 SVG
+│   ├── CardCursor.astro      # 3D 卡片倾斜光标
+│   ├── Comments.astro        # Giscus（占位，未启用）
+│   ├── Enhance.astro         # PWA / SEO 增强
+│   ├── Footer.astro
+│   ├── Header.astro
+│   ├── PostMeta.astro        # 文章元信息（日期/字数/阅读时长）
+│   ├── ProjectCard.astro
+│   ├── Search.astro          # Pagefind 命令面板
+│   └── TOC.astro             # 右侧目录
+├── content/
+│   ├── posts/                # 34 篇文章 (MDX)
+│   ├── projects/             # 3 个项目 (MDX): bookstore, mall, zhikao-cloud
+│   └── config.ts             # zod schema：posts (title/pubDate/tags/...) + projects (title/pubDate/endDate/tags/repo/featured/relatedPosts)
+├── layouts/
+│   ├── BaseLayout.astro      # 全站通用（OG/Twitter/字体/RSS link）
+│   └── PostLayout.astro      # 文章专用（TOC/PostMeta/阅读时长）
+├── pages/
+│   ├── index.astro           # 首页：hero + 最近 3 篇
+│   ├── about.astro           # config-style about（4 项 key:value）
+│   ├── posts/
+│   │   ├── [...slug].astro   # 文章详情
+│   │   └── [...page].astro   # 文章列表（分页 + 排序切换）
+│   ├── projects/
+│   │   ├── [...slug].astro   # 项目详情（含 relatedPosts 卡片）
+│   │   └── index.astro       # 项目列表（featured 优先）
+│   ├── tags/
+│   │   ├── [tag].astro       # 按 tag 筛文章
+│   │   └── index.astro       # 标签索引
+│   └── rss.xml.ts            # RSS feed
+├── styles/global.css         # tokens + prose + paper-card + cubic-bezier
+└── consts.ts                 # SITE / NAV / POSTS_PER_PAGE / STOP_TAGS / filterTags()
 ```
 
-## 写新文章
+## 写一篇新文章
+
+### 直接创建 MDX
 
 ```bash
-# 1. 创建文件
-touch src/content/posts/my-new-post.mdx
+# 1. 在 posts/ 下新建文件
+touch src/content/posts/2026-07-03-my-new-post.mdx
 ```
 
 ```mdx
 ---
 title: "你的标题"
-description: "副标题/摘要"
-pubDate: 2026-07-01
+description: "副标题 / 摘要"
+pubDate: 2026-07-03
 tags: ["topic", "category"]
+draft: false                # true 时仅 dev 显示，不发布
+cover: "https://..."        # 可选：列表页头图
 ---
 
 ## 第一段
 
-正文，支持 Markdown + MDX 组件。
+正文，支持 Markdown + MDX。
 ```
 
-写完即部署：push 到 `main` 分支，GitHub Actions 自动跑 `astro build` 并部署。
+`pubDate` 决定排序：`/posts` 默认 desc（最新在前），可切换 asc（开篇在前）。
 
-## 使用 CMS 在线编辑
+### 标签约定
 
-直接浏览器打开 `https://www.personalblog.website/admin/` 就能写文章，所见即所得、保存即自动 commit、自动触发部署。底层用 [Decap CMS](https://decapcms.org/) + GitHub OAuth，OAuth 代理由 [Netlify Identity](https://docs.netlify.com/visitor-access/identity/) 免费提供（无需部署到 Netlify）。
+`src/consts.ts` 的 `STOP_TAGS` 集中列出**非技术标签**（"实习"、"项目"、"入门"、"笔记"、"踩坑"等），这些标签**不会出现在标签云**和 `/tags` 索引里。如果你新写了一类技术词想出现在云上，不用动；想屏蔽某标签，添加到 `STOP_TAGS` 即可。
 
-### 首次配置（一次性，5 分钟）
+### 写一个新项目
 
-1. 访问 `https://www.personalblog.website/admin/`
-2. 点 **Login with GitHub**
-3. 第一次会引导你创建一个 **Netlify Identity site**（免费、一键）
-4. 创建后自动跳到 **Configure Git Gateway**，Provider 选 GitHub
-5. 点 **Connect to GitHub**，在 GitHub 弹窗里选 `xyd-dev-code/My-blog` 仓库，授权 read/write
-6. 完成后浏览器自动跳回 `/admin/`，登录成功
+```bash
+touch src/content/projects/my-project.mdx
+```
 
-之后每次打开 `/admin/` 直接点 Login 即可，无需重做配置。
+```mdx
+---
+title: "项目名 — 一句话定位"
+description: "完整复盘。"
+pubDate: 2025-07-29
+endDate: 2025-08-15                       # 可选
+cover: "https://..."                       # 列表页头图
+tags: ["SpringBoot", "MyBatis-Plus", ...]  # 技术栈
+repo: "https://github.com/xyd-dev-code/..." # 可选
+featured: true                              # true 时排第一
+relatedPosts:                               # 关联日志（posts id）
+  - "2025-06-10-mall-day1-init"
+  - "2025-07-29-mall-wrapup"
+---
 
-### 写一篇文章
+## 背景
+## 架构
+...
+```
 
-1. 进入 CMS 后，点左侧 **文章 → New Post**
-2. 填写字段：
-   - **URL Slug** — 文件名后缀，只用英文/数字/横杠（例：`spring-boot-jdk21`）
-   - **标题** — 文章标题（中文 OK）
-   - **描述** — 副标题/摘要
-   - **发布日期** — 选今天
-   - **标签** — 多个标签以回车分隔
-   - **草稿** — 勾选后文章只在本地 dev 显示，生产环境不可见
-   - **正文** — 纯 Markdown 编辑器（**不支持** React 组件，需要组件的文章请用本地编辑器写 MDX）
-3. 点右上角 **Publish**
-4. 几秒后 CMS 显示 "Status: Published"，GitHub 仓库 `main` 分支收到一个 commit（消息形如 `feat(posts): 新增 2026-06-30-spring-boot-jdk21`）
-5. 等 2-3 分钟 GitHub Actions 自动部署，刷新线上博客即可看到新文章
+项目详情页底部自动渲染 `relatedPosts` 卡片网格。
 
-### 图片上传
+### 发布
 
-拖拽图片到正文编辑器，会自动上传到 `public/images/uploads/`，并在 Markdown 里生成引用 URL（形如 `/images/uploads/xxx.jpg`）。
-
-### 本地限制
-
-`pnpm dev` 访问 `/admin/` 只能看 UI 界面，**不能登录/提交**——因为 GitHub OAuth 回调 URL 是线上域名，localhost 不在白名单。所有端到端验证都在线上 `/admin/` 完成。
-
-### 配置文件位置
-
-- `public/admin/index.html` — Decap CMS SPA 入口（锁版本 `decap-cms@3.6.4`）
-- `public/admin/config.yml` — CMS 行为定义（backend / 字段 / 媒体路径）
-- 改 schema 时**只改 `config.yml`**，不动 `src/content/config.ts`（那是 Astro 构建时的 zod 校验，两套独立机制）
+push 到 `main` 分支，GitHub Actions 自动跑 `astro build` → 部署到 GitHub Pages。
 
 ## 本地开发
 
 ```bash
-# 装依赖
 pnpm install
-
-# 启动 dev server
-pnpm dev          # → http://localhost:4321
-
-# 生产构建
-pnpm build        # → ./dist
-pnpm preview      # 预览构建结果
+pnpm dev               # → http://localhost:4321
+pnpm build             # → ./dist（postbuild 跑 Pagefind 索引）
+pnpm preview           # 预览构建产物
 ```
 
-## 部署到 GitHub Pages
+## 部署
 
-1. 在 GitHub 创建一个新仓库，名为 `My-blog`（或同名）
-2. 推送代码：`git remote add origin git@github.com:xyd-dev-code/My-blog.git && git push -u origin main`
-3. 仓库 → **Settings** → **Pages** → **Source** 选 `GitHub Actions`
-4. push 后 `Actions` tab 会自动跑 `.github/workflows/deploy.yml`
-5. 几分钟后访问 `https://<user>.github.io/My-blog/`
+GitHub Actions 工作流（`.github/workflows/deploy.yml`）监听 `main` push，跑 `pnpm build` 后把 `dist/` + `dist/pagefind/` 部署到 GitHub Pages。
 
-### `base` 路径配置
+### 自定义域名
 
-本仓库 `astro.config.mjs` 设置了 `base: ''`（空字符串），站点绑定自定义域名 `www.personalblog.website`，访问 URL 不含子路径前缀。如果你换成 user page（`username.github.io`）也无需改；换成项目页才需要设回 `base`。
-
-## 配置 Giscus 评论
-
-> ⚠️ **当前未启用。** `src/components/Comments.astro` 里的 `data-repo-id` / `data-category-id` 是 `REPLACE_ME_GISCUS_*` 占位符，按下面步骤配好后评论才会真正工作。
-
-1. 仓库 → Settings → Features → 开启 **Discussions**
-2. 访问 <https://giscus.app/zh-CN>，填入仓库名 `xyd-dev-code/My-blog`，按你想要的页面映射 / 类别设置生成配置
-3. 复制生成的 `data-repo-id` 和 `data-category-id`
-4. 替换 `src/components/Comments.astro` 里对应位置的两个 `REPLACE_ME_GISCUS_*`
-5. 注意：`Comments.astro` 当前样式残留旧霓虹主题（`text-neon-*`、`text-text-*` 等类名在晴空主题里不存在，渲染会异常），最好连样式一起迁移到 sky 调色板
+本仓库 `src/consts.ts` 里 `SITE.url = 'https://www.personalblog.website'`，`astro.config.mjs` 设 `base: ''` 适配根域名绑定。DNS 配 CNAME 到 `xyd-dev-code.github.io`，仓库 Settings → Pages → Custom domain 填上。
 
 ## 主题定制
 
-所有晴空主题色 token 在 `tailwind.config.mjs` 的 `colors` 段：
+`tailwind.config.mjs` 的 `colors` 段：
 
 ```js
 colors: {
-  sky:    { /* 主色：天空蓝（50–900）*/ },
-  cloud:  { /* 云白（50–300） */ },
+  sky:    { /* 主色：天空蓝 50–900 */ },
+  cloud:  { /* 云白 50–300 */ },
   sun:    { /* 阳光金点缀 */ },
   leaf:   { /* 叶子绿点缀 */ },
-  ink:    { /* 主文字 */ },
+  ink:    { /* 主文字色阶 */ },
   paper:  { /* 背景白 */ },
 }
 ```
 
-字体：
+字体（`src/layouts/BaseLayout.astro` 通过 Google Fonts 引入）：
+- 正文：`Inter`
+- 标题 / 衬线：`Fraunces`（含 italic）
+- 代码：`font-mono`（系统栈）
 
-- 正文 `Inter`（无衬线，回退 PingFang / 微软雅黑）
-- 标题 `Fraunces` / `Noto Serif SC`（衬线）
-- 代码 `JetBrains Mono`
+`src/styles/global.css` 定义全局 utility：`paper-card`、`paper-link`、`tag-chip(-warm/-leaf)`、`cubic-bezier(--ease-out-quint)`。
 
-`Background.astro` 里另有云朵 SVG + 阳光光晕 / 天空光晕（CSS / SVG-only，无 JS 动画库依赖）。
+## 评论（Giscus，未启用）
+
+`src/components/Comments.astro` 是占位。要启用：仓库开 Discussions → 在 <https://giscus.app/zh-CN> 生成配置 → 替换 `Comments.astro` 里的 `REPLACE_ME_GISCUS_*` → 同时把组件里的旧 `text-neon-*` 残留类名迁到晴空主题。
 
 ## 致谢
 
 - [Astro](https://astro.build/) — 静态站框架
 - [Tailwind CSS](https://tailwindcss.org/) — 样式
-- [Shiki](https://shiki.style/) — 代码高亮
+- [Shiki](https://shiki.style/) + [rehype-pretty-code](https://rehype-pretty.pages.dev/) — 代码高亮
 - [Pagefind](https://pagefind.app/) — 静态搜索
-- [Giscus](https://giscus.app/) — 评论
 
 ---
 
