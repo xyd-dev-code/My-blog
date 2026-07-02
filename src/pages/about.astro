@@ -1,233 +1,63 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
-import { getCollection } from 'astro:content';
 import { SITE } from '~/consts';
 
 const email = 'x2597486661@gmail.com';
-
-const allPosts = await getCollection('posts', ({ data }) => !data.draft);
-const allProjects = await getCollection('projects');
-const totalPosts = allPosts.length;
-const totalProjects = allProjects.length;
-
-const tagSet = new Set<string>();
-allPosts.forEach((p) => (p.data.tags ?? []).forEach((t) => tagSet.add(t)));
-allProjects.forEach((p) => (p.data.tags ?? []).forEach((t) => tagSet.add(t)));
-const totalTags = tagSet.size;
-
-const TIMELINE = [
-  {
-    year: '2026',
-    title: '智考云 — 在线考试系统',
-    desc: '全栈实战：Spring Boot 3 + Vue 3 + Docker 一键部署 + Cloudflare Tunnel 公网暴露。',
-    href: '/projects/zhikao-cloud',
-    linkLabel: '看项目',
-  },
-  {
-    year: '2025.12 —',
-    title: '亚信科技 · 后端实习',
-    desc: '业务支撑系统后端开发，第一次在生产环境改 SQL、看日志、跟导师过 user 模块。',
-  },
-  {
-    year: '2025',
-    title: '电脑商城 mall',
-    desc: 'Spring Boot + MyBatis-Plus + Redis + JWT 的完整电商闭环。',
-    href: '/projects/mall',
-    linkLabel: '看项目',
-  },
-  {
-    year: '2024.12',
-    title: '网上书城',
-    desc: 'SSM 三件套（Spring + Spring MVC + MyBatis）入门第一个完整项目。',
-    href: '/projects/bookstore',
-    linkLabel: '看项目',
-  },
-  {
-    year: '2024 春',
-    title: 'Spring Boot / Vue 入坑',
-    desc: '从「写 demo」切换到「写工程」的一年，搭脚手架、写分层、用 Docker 起服务。',
-  },
-  {
-    year: '2023 秋',
-    title: 'C++ 数据结构 · 计算机网络基础',
-    desc: '第一个坚实的学期：链表 / BST / 排序 / OSI 七层，全靠课堂上敲代码。',
-  },
-];
-
-const SKILL_GROUPS: { icon: string; title: string; items: string[] }[] = [
-  {
-    icon: 'sun',
-    title: 'Backend',
-    items: ['Java', 'SpringBoot', 'MySQL', 'Redis', 'MyBatis', 'Spring Security'],
-  },
-  {
-    icon: 'leaf',
-    title: 'Frontend / Fullstack',
-    items: ['Vue', 'TypeScript', 'Vite', 'Pinia', 'Element Plus'],
-  },
-  {
-    icon: 'compass',
-    title: 'Ops / Tools',
-    items: ['Docker', 'Nginx', 'Linux', 'Git', 'Maven'],
-  },
-];
 ---
 <BaseLayout
   title="About"
-  description={`关于 ${SITE.author}——后端偏重的全栈工程师，写代码也写心得。`}
+  description={`${SITE.author} — 在亚信科技做后端，写代码也写心得。`}
 >
-  <section class="mx-auto max-w-3xl px-4 sm:px-6 py-12 sm:py-16">
+  <section class="mx-auto max-w-3xl px-4 sm:px-6 py-16 sm:py-24">
     <header class="text-center">
-      <div class="inline-flex items-center gap-2 rounded-full bg-white/80 backdrop-blur px-4 py-1.5 text-xs font-mono text-ink-500 shadow-paper border border-cloud-300">
-        <span class="h-1.5 w-1.5 rounded-full bg-leaf-500 animate-pulse"></span>
-        <span>关于这个博客的作者 · about the author</span>
-      </div>
-
-      <h1 class="mt-8 font-display text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight leading-[1.1] text-balance">
-        <span class="text-ink-900">Hi, I'm </span>
-        <span class="text-sky-700">{SITE.author}</span>
-        <span class="text-ink-900">.</span>
+      <div class="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-sky-300 to-sky-500 ring-2 ring-white shadow-sm"></div>
+      <h1 class="mt-5 font-display text-3xl sm:text-4xl font-bold tracking-tight text-ink-900">
+        {SITE.author}
       </h1>
-
-      <p class="mt-4 font-serif italic text-lg sm:text-xl text-ink-500">
-        backend-leaning fullstack engineer.
-      </p>
-      <p class="mt-1 font-serif italic text-sm text-ink-400">
-        writes code, sometimes writes about it.
+      <p class="mt-2 font-serif italic text-base text-ink-500">
+        后端偏重的全栈工程师。
       </p>
     </header>
 
-    <!-- 一句话定位 + Stats -->
-    <div class="mt-12 paper-card p-6 sm:p-8" data-tilt>
-      <p class="font-mono text-xs uppercase tracking-widest text-sky-700 mb-4">
-        // in one line
-      </p>
-      <p class="text-base sm:text-lg text-ink-700 leading-relaxed">
-        一名<span class="font-semibold text-sky-700">后端偏重</span>的全栈工程师。
-        日常写 Java / Spring Boot / MySQL，业余用 Vue / TypeScript 搭前端，
-        关注工程化、Docker 部署、AI 编程辅助。
-        在这个博客里记录学习心得与项目复盘，相信清晰的表达是高效协作的基石。
-      </p>
+    <article class="mt-12 paper-card p-6 sm:p-8 md:p-10">
+      <section>
+        <h2 class="font-display text-lg font-semibold text-ink-900">我是谁</h2>
+        <p class="mt-2 text-base text-ink-700 leading-relaxed">
+          现在在亚信科技做业务支撑系统的后端，给 zhikao-cloud 加新功能，业余写这个博客。写过 Java Web、电商、在线考试——具体能在 <a href="/projects" class="paper-link">项目页</a> 看到。
+        </p>
+      </section>
 
-      <div class="mt-6 grid grid-cols-4 gap-3 sm:gap-4 text-center border-t border-cloud-200 pt-6">
-        <div>
-          <p class="font-display text-2xl sm:text-3xl font-semibold text-ink-900 tabular-nums">{totalPosts}</p>
-          <p class="mt-1 text-[11px] sm:text-xs text-ink-500 font-mono">文章</p>
-        </div>
-        <div>
-          <p class="font-display text-2xl sm:text-3xl font-semibold text-ink-900 tabular-nums">{totalProjects}</p>
-          <p class="mt-1 text-[11px] sm:text-xs text-ink-500 font-mono">项目</p>
-        </div>
-        <div>
-          <p class="font-display text-2xl sm:text-3xl font-semibold text-ink-900 tabular-nums">{totalTags}</p>
-          <p class="mt-1 text-[11px] sm:text-xs text-ink-500 font-mono">标签</p>
-        </div>
-        <div>
-          <p class="font-display text-base sm:text-lg font-semibold text-leaf-600 tabular-nums mt-1 sm:mt-2">持续写</p>
-          <p class="mt-1 text-[11px] sm:text-xs text-ink-500 font-mono">since 2023.10</p>
-        </div>
-      </div>
-    </div>
+      <section class="mt-7">
+        <h2 class="font-display text-lg font-semibold text-ink-900">现在在做什么</h2>
+        <p class="mt-2 text-base text-ink-700 leading-relaxed">
+          白天改生产 SQL、跟导师过 user 模块；晚上回来敲 zhikao-cloud 的下一版 schema，再给博客写一篇。偶尔摸鱼写一份「全栈开发者路线地图」——把踩过的坑串成一条线。
+        </p>
+      </section>
 
-    <!-- Skills -->
-    <div class="mt-8 paper-card p-5 sm:p-6">
-      <p class="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-ink-400 mb-4">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M12 2v6m0 12v2m10-10h-2M4 12H2m15.5-7.5-1.4 1.4M7.9 16.1l-1.4 1.4m0-11 1.4 1.4m8.2 8.2 1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg>
-        工具栈
-      </p>
+      <section class="mt-7">
+        <h2 class="font-display text-lg font-semibold text-ink-900">我的写法</h2>
+        <p class="mt-2 text-base text-ink-700 leading-relaxed">
+          相信代码要可读、文档要清晰、一致性比 hot take 更值钱。AI 工具能提速但不能替你判断——所以关键设计我会慢下来想。
+        </p>
+      </section>
 
-      <div class="space-y-4">
-        {SKILL_GROUPS.map((group) => (
-          <div>
-            <p class="font-mono text-[11px] uppercase tracking-widest text-sky-700 mb-2">
-              {group.title}
-            </p>
-            <div class="flex flex-wrap gap-1.5">
-              {group.items.map((t, i) => (
-                <span
-                  class:list={[
-                    'tag-chip',
-                    i % 3 === 1 ? 'tag-chip-warm' : i % 3 === 2 ? 'tag-chip-leaf' : '',
-                  ]}
-                >
-                  #{t}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-
-    <!-- Timeline -->
-    <div class="mt-8 paper-card p-5 sm:p-6">
-      <p class="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-ink-400 mb-5">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-        时间线
-      </p>
-
-      <ol class="relative border-l-2 border-cloud-300 ml-2 space-y-6">
-        {TIMELINE.map((item) => (
-          <li class="relative pl-6">
-            <span class="absolute -left-[7px] top-1.5 h-3 w-3 rounded-full bg-sky-500 ring-4 ring-white shadow-sm"></span>
-            <div class="flex items-baseline gap-3">
-              <span class="font-mono text-xs text-sky-700 tabular-nums shrink-0">{item.year}</span>
-              <h3 class="font-display text-base sm:text-lg font-semibold text-ink-900 leading-snug">
-                {item.title}
-              </h3>
-            </div>
-            <p class="mt-1 text-sm text-ink-500 leading-relaxed">
-              {item.desc}
-            </p>
-            {item.href && (
-              <a
-                href={item.href}
-                class="mt-1.5 inline-flex items-center gap-1 text-xs text-sky-600 hover:text-sky-700 transition-[color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
-              >
-                {item.linkLabel ?? '看详情'} <span class="card-arrow">→</span>
-              </a>
-            )}
-          </li>
-        ))}
-      </ol>
-    </div>
-
-    <!-- 当前在做什么 CTA -->
-    <div class="mt-8 paper-card p-6 sm:p-8 text-center relative" data-tilt>
-      <p class="font-mono text-xs uppercase tracking-widest text-sky-700 mb-3">
-        // what's up now
-      </p>
-      <p class="text-base sm:text-lg text-ink-700 leading-relaxed">
-        现在在 <span class="text-sky-600 font-medium">亚信科技</span> 做业务支撑系统后端，
-        业余时间继续写这个博客、给 zhikao-cloud 加新功能。
-        想做一份<span class="text-sun-500 font-medium">全栈开发者路线地图</span>——
-        把踩过的坑串成一条线。
-      </p>
-    </div>
-
-    <!-- 联系方式 -->
-    <div class="mt-8 paper-card p-6">
-      <h3 class="font-mono text-xs uppercase tracking-widest text-sky-700 mb-4">
-        // get in touch
-      </h3>
-      <div class="flex flex-col gap-3 text-sm">
+      <!-- 卡内末尾联系方式，不另起 card -->
+      <div class="mt-8 pt-6 border-t border-cloud-200 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
         <a
           href={SITE.github}
           target="_blank"
           rel="noopener noreferrer"
-          class="paper-link font-medium inline-flex items-center gap-1.5 group"
+          class="paper-link font-medium inline-flex items-center gap-1 group"
         >
-          → GitHub @xyd-dev-code
-          <span class="card-arrow">↗</span>
+          → GitHub @xyd-dev-code<span class="card-arrow">↗</span>
         </a>
         <a
           href="/rss.xml"
-          class="paper-link font-medium inline-flex items-center gap-1.5 group"
+          class="paper-link font-medium inline-flex items-center gap-1 group"
         >
-          → RSS 订阅
-          <span class="card-arrow">→</span>
+          → RSS 订阅<span class="card-arrow">→</span>
         </a>
-        <div class="flex items-center gap-2">
+        <span class="flex items-center gap-2">
           <span class="text-ink-500 font-mono" aria-label="Email">{email}</span>
           <button
             type="button"
@@ -238,9 +68,9 @@ const SKILL_GROUPS: { icon: string; title: string; items: string[] }[] = [
           >
             复制
           </button>
-        </div>
+        </span>
       </div>
-    </div>
+    </article>
   </section>
 </BaseLayout>
 
