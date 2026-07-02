@@ -6,7 +6,12 @@ import { POSTS_PER_PAGE, STOP_TAGS, filterTags } from '~/consts';
 
 export async function getStaticPaths() {
   const all = (await getCollection('posts', ({ data }) => !data.draft))
-    .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+    .sort((a, b) => {
+      const ap = a.data.pinned ? 1 : 0;
+      const bp = b.data.pinned ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      return b.data.pubDate.getTime() - a.data.pubDate.getTime();
+    });
   const totalPages = Math.max(1, Math.ceil(all.length / POSTS_PER_PAGE));
   return Array.from({ length: totalPages }, (_, i) => ({
     params: { page: i === 0 ? undefined : String(i + 1) },
@@ -14,7 +19,12 @@ export async function getStaticPaths() {
 }
 
 const all = (await getCollection('posts', ({ data }) => !data.draft))
-  .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+  .sort((a, b) => {
+    const ap = a.data.pinned ? 1 : 0;
+    const bp = b.data.pinned ? 1 : 0;
+    if (ap !== bp) return bp - ap;
+    return b.data.pubDate.getTime() - a.data.pubDate.getTime();
+  });
 
 const totalPages = Math.max(1, Math.ceil(all.length / POSTS_PER_PAGE));
 const rawPage = Astro.params.page;
@@ -232,8 +242,13 @@ const earliest = all[all.length - 1]?.data.pubDate;
               <li>
                 <a
                   href={`/posts/${post.id}`}
-                  class="group paper-card flex flex-col block overflow-hidden min-h-[12rem] transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-[2px] hover:shadow-md"
+                  class="group paper-card flex flex-col block overflow-hidden min-h-[12rem] transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-[2px] hover:shadow-md relative"
                 >
+                  {post.data.pinned && (
+                    <span class="absolute top-3 left-3 z-10 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-200 shadow-sm" title="置顶开篇">
+                      📌 开篇
+                    </span>
+                  )}
                   <div class="flex-1 flex flex-col sm:flex-row">
                     <div class="sm:w-40 shrink-0 self-stretch overflow-hidden bg-cloud-200">
                       {post.data.cover && (
