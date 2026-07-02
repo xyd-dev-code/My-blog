@@ -1,0 +1,79 @@
+---
+title: "网上书城 — 从基础语法迈向企业级开发的第一个完整项目"
+description: "Java Web 综合实战项目：用户/图书/购物车/订单完整闭环。从 Servlet/JSP 时期的能力，迈向第一次完整工程化思维的起点。"
+pubDate: 2024-12-01
+endDate: 2025-03-31
+cover: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=800&h=420&fit=crop&auto=format&q=75"
+tags: ["JavaWeb", "SpringMVC", "MyBatis", "MySQL", "Maven"]
+featured: false
+relatedPosts: []
+---
+
+## 项目定位
+
+这是我**从基础语法迈向企业级开发的第一个完整项目**——网上书城。
+
+在它之前，我做过的是 demo 级别：一个功能跑通就结束。在它之后，我才开始用"工程"的视角写代码：一个目录怎么分层、一个事务怎么控制、一个 session 怎么管理、一个模块怎么解耦。
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| 后端 | Spring MVC + Spring + MyBatis（SSM 经典三件套）|
+| 视图 | JSP + JSTL + EL 表达式 |
+| 数据库 | MySQL |
+| 构建 | Maven |
+| 会话 | HttpSession + Cookie |
+| 前端 | HTML + CSS + JS（少量 jQuery 辅助）|
+
+> 相比后续的 mall / zhikao-cloud 项目，这个项目**没有用前后端分离**，是传统的服务端渲染模式。这正是当时 Java Web 课程的标准做法。
+
+## 核心功能
+
+| 模块 | 要解决的问题 |
+|------|--------------|
+| **用户** | 注册 / 登录 / 注销，会话保持 |
+| **图书分类** | 多级分类展示，按类别筛选 |
+| **购物车** | 未登录状态本地暂存，登录后合并到服务端 |
+| **订单** | 下单流程，订单状态流转 |
+
+## 学习意义
+
+这个项目最大的价值不是"做出一个书城"，而是**彻底搞懂 HTTP 请求流程**：
+
+- 一个请求从浏览器到 Tomcat 到 Servlet 到 Service 到 Mapper 到 MySQL，再原路返回到 JSP 视图——这条链路**第一次完整走通**
+- **Session 与 Cookie** 的区别和协同：哪些信息放 Cookie（自动带回）、哪些信息放 Session（服务端持有）
+- **数据库事务控制**：下单扣库存的场景，第一次体会到 `@Transactional` 的边界
+- **JDBC 时代**对连接池的朴素理解：为什么需要池、池小了会怎样
+
+后续所有项目——mall、zhikao-cloud——的工程化基础，都是在这个项目里打下的。
+
+## 与 mall / zhikao-cloud 的关系
+
+| 项目 | 时段 | 角色 |
+|------|------|------|
+| **网上书城** | 2024.12 — 2025.03 | 入门完整项目，搞懂基础 |
+| **电脑商城 mall** | 2025.06 — 2025.07 | 课程项目，加入 Redis |
+| **zhikao-cloud** | 2026 — | 全栈实战，加入 Docker / Cloudflare |
+
+三个项目的代码规模、技术深度、部署方式都是阶梯上升的。书城是**第一级台阶**。
+
+---
+
+## 给路过的人的话
+
+如果你刚开始学 Java Web，不建议上来就跳到 Spring Boot。
+
+先把这条路**走完一遍**：
+
+```
+Servlet → JSP → JDBC → Filter → Listener → Session
+  ↓
+Spring → Spring MVC → MyBatis → MySQL → Maven
+  ↓
+Spring Boot → MyBatis-Plus → Redis → JWT → Docker
+```
+
+这条路上的**每一步都对应一类问题**。跳着学，会在 Spring Boot 里被"自动配置"绕晕，然后在生产环境被事务/缓存/会话一类问题反复折磨。
+
+书城这个项目就是这条路上**第一个"实战练手场"**——它足够小让你能 hold 住，又足够真实让你遇到真问题。
