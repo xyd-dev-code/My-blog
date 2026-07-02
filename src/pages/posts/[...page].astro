@@ -38,12 +38,19 @@ function getPageNumbers(current: number, total: number): (number | '...')[] {
   return pages;
 }
 
-// 侧栏即时搜索索引
+// 侧栏即时搜索索引 + 跨页排序所需的全量元数据
 const searchIndex = all.map((p) => ({
   t: p.data.title,
   d: p.data.description,
   tags: p.data.tags ?? [],
   url: `/posts/${p.id}`,
+  pubDate: p.data.pubDate.toISOString(),
+  cover: p.data.cover ?? '',
+}));
+// 客户端按 dir 排序后再分页的元数据（不带 description，避免 JSON 过大）
+const allPostsMeta = all.map((p) => ({
+  id: p.id,
+  pubDate: p.data.pubDate.toISOString(),
 }));
 
 // 侧栏：最新 / 热门（无阅读量，取最近 4 篇与中段 4 篇作为"热门"）
@@ -210,7 +217,7 @@ const earliest = all[all.length - 1]?.data.pubDate;
           <p class="mt-1.5 text-xs text-ink-400">
             <span class="text-leaf-500">●</span> {all.length} article{all.length === 1 ? '' : 's'} found
             <span class="mx-1.5 text-ink-300">·</span>
-            <span class="font-mono tabular-nums">{currentPage} / {totalPages}</span>
+            <span class="font-mono tabular-nums"><span data-posts-current-page>{currentPage}</span> / {totalPages}</span>
           </p>
           <!-- 排序切换（客户端重排） -->
           <div
@@ -257,7 +264,7 @@ const earliest = all[all.length - 1]?.data.pubDate;
         {posts.length === 0 ? (
           <p class="text-ink-500 text-center py-12">暂无文章。</p>
         ) : (
-          <ul class="space-y-4" data-posts-list>
+          <ul class="space-y-4" data-posts-list data-per-page={POSTS_PER_PAGE}>
             {posts.map((post) => (
               <li data-pubdate={post.data.pubDate.toISOString()}>
                 <a
@@ -313,6 +320,7 @@ const earliest = all[all.length - 1]?.data.pubDate;
             ))}
           </ul>
         )}
+        <script type="application/json" id="all-posts-data" set:html={JSON.stringify(allPostsMeta)} />
       </section>
 
       <!-- 右 sidebar -->
@@ -383,7 +391,12 @@ const earliest = all[all.length - 1]?.data.pubDate;
       </aside>
 
       {totalPages > 1 && (
-        <nav class="lg:col-start-2 lg:row-start-2 flex items-center justify-center gap-1.5 text-sm py-2">
+        <nav
+          class="lg:col-start-2 lg:row-start-2 flex items-center justify-center gap-1.5 text-sm py-2"
+          data-posts-pagination
+          data-current-page={currentPage}
+          data-total-pages={totalPages}
+        >
           <!-- 左箭头 -->
           {currentPage > 1 ? (
             <a href={pageHref(currentPage - 1)} title="上一页"
@@ -418,34 +431,112 @@ const earliest = all[all.length - 1]?.data.pubDate;
 </BaseLayout>
 
 <script>
-  // 文章排序切换：客户端重新排序主区列表
+  // 文章排序切换：跨页联动
   const toggle = document.querySelector<HTMLElement>('[data-sort-toggle]');
   const list = document.querySelector<HTMLElement>('[data-posts-list]');
-  if (toggle && list) {
-    const buttons = toggle.querySelectorAll<HTMLButtonElement>('[data-sort]');
-    const applySort = (dir: 'desc' | 'asc') => {
-      const items = Array.from(list.querySelectorAll<HTMLElement>(':scope > li[data-pubdate]'));
-      items.sort((a, b) => {
-        const ta = new Date(a.dataset.pubdate!).getTime();
-        const tb = new Date(b.dataset.pubdate!).getTime();
-        return dir === 'asc' ? ta - tb : tb - ta;
+  const pagination = document.querySelector<HTMLElement>('[data-posts-pagination]');
+  const metaEl = document.getElementById('all-posts-data');
+  const searchEl = document.getElementById('search-index');
+  const PER_PAGE = Number(document.querySelector<HTMLElement>('[data-posts-list]')?.dataset.perPage || '4');
+
+  if (toggle && list && metaEl && searchEl) {
+    const allMeta: {id:string; pubDate:string}[] = JSON.parse(metaEl.textContent || '[]');
+    const searchData: {t:string;d:string;tags:string[];url:string;pubDate:string;cover:string}[] = JSON.parse(searchEl.textContent || '[]');
+    const metaById = new Map(allMeta.map((m) => [m.id, m]));
+    const detailById = new Map(searchData.map((s) => [s.url.replace('/posts/',''), s]));
+
+    const esc = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const fmtDate = (iso: string) => {
+      const d = new Date(iso);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    const renderCard = (id: string) => {
+      const detail = detailById.get(id);
+      const meta = metaById.get(id);
+      if (!detail || !meta) return '';
+      const cover = detail.cover ? `<img src="${esc(detail.cover)}" alt="${esc(detail.t)}" loading="eager" decoding="async" referrerpolicy="no-referrer" class="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]" />` : '';
+      const tagsHtml = (detail.tags || []).slice(0, 4).map((t, i) => `<span class="tag-chip${i%3===1?' tag-chip-warm':''}${i%3===2?' tag-chip-leaf':''}">#${esc(t)}</span>`).join('');
+      return `<li data-pubdate="${meta.pubDate}" data-post-id="${esc(id)}"><a href="/posts/${esc(id)}" class="group paper-card flex flex-col block overflow-hidden min-h-[12rem] transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-[2px] hover:shadow-md relative"><div class="flex-1 flex flex-col sm:flex-row"><div class="sm:w-40 shrink-0 self-stretch overflow-hidden bg-cloud-200">${cover}</div><div class="flex-1 min-w-0 p-4 sm:p-5"><div class="flex items-baseline justify-between gap-3"><h2 class="font-display text-base sm:text-lg font-semibold text-ink-900 group-hover:text-sky-700 transition-[color] duration-[120ms] leading-snug line-clamp-2">${esc(detail.t)}</h2><time datetime="${meta.pubDate}" class="text-xs text-ink-400 font-mono tabular-nums shrink-0 hidden sm:block">${fmtDate(meta.pubDate)}</time></div><p class="mt-1.5 text-sm text-ink-500 line-clamp-3 leading-relaxed">${esc(detail.d)}</p>${tagsHtml ? `<div class="mt-3 flex flex-wrap gap-1.5">${tagsHtml}</div>` : ''}</div></div></a></li>`;
+    };
+
+    let currentSort: 'desc' | 'asc' = 'desc';
+    let currentPageIdx = 1;
+    const totalPosts = allMeta.length;
+    const totalDescPages = Math.ceil(totalPosts / PER_PAGE);
+
+    const renderPagination = () => {
+      if (!pagination) return;
+      const getPages = (cur: number, tot: number): (number | '...')[] => {
+        if (tot <= 7) return Array.from({ length: tot }, (_, i) => i + 1);
+        const arr: (number | '...')[] = [1];
+        if (cur > 3) arr.push('...');
+        const s = Math.max(2, cur - 1), e = Math.min(tot - 1, cur + 1);
+        for (let i = s; i <= e; i++) arr.push(i);
+        if (cur < tot - 2) arr.push('...');
+        arr.push(tot);
+        return arr;
+      };
+      const left = currentPageIdx > 1 ? `<a href="#" data-page="${currentPageIdx - 1}" title="上一页" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">←</a>` : `<span class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-300 cursor-not-allowed">←</span>`;
+      const right = currentPageIdx < totalDescPages ? `<a href="#" data-page="${currentPageIdx + 1}" title="下一页" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">→</a>` : `<span class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-300 cursor-not-allowed">→</span>`;
+      const mid = getPages(currentPageIdx, totalDescPages).map(p => p === '...' ? `<span class="w-8 h-8 flex items-center justify-center text-ink-400">…</span>` : p === currentPageIdx ? `<span class="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-500 text-white font-medium">${p}</span>` : `<a href="#" data-page="${p}" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">${p}</a>`).join('');
+      pagination.innerHTML = `${left}${mid}${right}`;
+      pagination.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach(a => {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          const p = Number(a.dataset.page);
+          if (p >= 1 && p <= totalDescPages) {
+            currentPageIdx = p;
+            renderList();
+          }
+        });
       });
-      items.forEach((el) => list.appendChild(el));
-      buttons.forEach((b) => {
-        const active = b.dataset.sort === dir;
+      // 同步 header 计数
+      const cp = pagination.dataset.currentPage;
+      const headerCounter = document.querySelector('[data-posts-current-page]');
+      if (headerCounter) headerCounter.textContent = String(currentPageIdx);
+    };
+
+    const renderList = () => {
+      const sorted = [...allMeta].sort((a, b) => currentSort === 'asc'
+        ? new Date(a.pubDate).getTime() - new Date(b.pubDate).getTime()
+        : new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+      const slice = sorted.slice((currentPageIdx - 1) * PER_PAGE, currentPageIdx * PER_PAGE);
+      list.innerHTML = slice.map((p) => renderCard(p.id)).join('');
+      renderPagination();
+    };
+
+    const updateButtons = () => {
+      toggle.querySelectorAll<HTMLButtonElement>('[data-sort]').forEach((b) => {
+        const active = b.dataset.sort === currentSort;
         b.classList.toggle('bg-sky-500', active);
         b.classList.toggle('text-white', active);
         b.classList.toggle('shadow-sm', active);
         b.classList.toggle('text-ink-500', !active);
         b.classList.toggle('hover:text-sky-700', !active);
       });
+    };
+
+    const applySort = (dir: 'desc' | 'asc') => {
+      currentSort = dir;
+      currentPageIdx = 1;
+      updateButtons();
+      renderList();
       try { localStorage.setItem('posts-sort', dir); } catch {}
     };
+
     // 读取上次选择（默认 desc）
-    let saved: 'desc' | 'asc' = 'desc';
-    try { const v = localStorage.getItem('posts-sort'); if (v === 'asc' || v === 'desc') saved = v; } catch {}
-    if (saved === 'asc') applySort('asc');
-    buttons.forEach((b) => b.addEventListener('click', () => applySort(b.dataset.sort as 'desc' | 'asc')));
+    try {
+      const v = localStorage.getItem('posts-sort');
+      if (v === 'asc' || v === 'desc') currentSort = v;
+    } catch {}
+    if (currentSort === 'asc') renderList();
+    updateButtons();
+    toggle.querySelectorAll<HTMLButtonElement>('[data-sort]').forEach((b) => {
+      b.addEventListener('click', () => applySort(b.dataset.sort as 'desc' | 'asc'));
+    });
   }
 
   // 侧栏即时搜索

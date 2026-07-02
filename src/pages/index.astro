@@ -4,7 +4,7 @@ import { getCollection } from 'astro:content';
 import { SITE, filterTags } from '~/consts';
 
 const posts = (await getCollection('posts', ({ data }) => !data.draft))
-  .sort((a, b) => a.data.pubDate.getTime() - b.data.pubDate.getTime())
+  .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime())
   .slice(0, 3);
 
 function formatDate(d: Date) {
