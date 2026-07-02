@@ -199,8 +199,8 @@ const earliest = all[all.length - 1]?.data.pubDate;
 
       <!-- 主区 -->
       <section class="flex flex-col">
-        <header class="mb-3 text-center">
-          <h1 class="font-display text-3xl sm:text-4xl font-bold text-ink-900">
+        <header class="mb-3 text-center px-2">
+          <h1 class="font-display text-2xl sm:text-3xl md:text-4xl font-bold text-ink-900">
             所有文章
           </h1>
           <p class="mt-2 text-sm text-ink-500 font-serif italic max-w-xl mx-auto">
@@ -211,6 +211,17 @@ const earliest = all[all.length - 1]?.data.pubDate;
             <span class="mx-1.5 text-ink-300">·</span>
             <span class="font-mono tabular-nums">{currentPage} / {totalPages}</span>
           </p>
+          <!-- 移动端搜索入口（桌面端右侧栏已有搜索框） -->
+          <button
+            type="button"
+            data-open-search
+            class="lg:hidden mt-3 inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-full border border-cloud-300 bg-white/70 text-ink-500 hover:border-sky-400 hover:text-sky-700 transition-colors"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5">
+              <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+            </svg>
+            搜索文章 / 标签
+          </button>
         </header>
 
         {posts.length === 0 ? (

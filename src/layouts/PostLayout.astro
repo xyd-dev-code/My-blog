@@ -14,7 +14,7 @@ interface Props {
 const { post, readingTime, headings = [] } = Astro.props;
 ---
 <BaseLayout title={post.data.title} description={post.data.description}>
-  <article class="relative mx-auto max-w-6xl px-4 sm:px-6 py-12" style="content-visibility: auto; contain-intrinsic-size: auto 1200px;">
+  <article class="relative mx-auto max-w-6xl px-4 sm:px-6 py-8 sm:py-12" style="content-visibility: auto; contain-intrinsic-size: auto 1200px;">
     <!-- 面包屑 -->
     <nav class="mb-8 text-xs text-ink-400">
       <a href="/" class="hover:text-sky-600">~</a>
@@ -29,10 +29,10 @@ const { post, readingTime, headings = [] } = Astro.props;
 
       <div class="min-w-0">
         <header class="mb-10 pb-8 border-b border-cloud-300">
-          <h1 class="font-display text-3xl sm:text-5xl font-bold text-ink-900 text-balance leading-tight">
+          <h1 class="font-display text-2xl sm:text-3xl md:text-5xl font-bold text-ink-900 text-balance leading-tight">
             {post.data.title}
           </h1>
-          <p class="mt-4 text-lg text-ink-500 leading-relaxed">
+          <p class="mt-3 sm:mt-4 text-base sm:text-lg text-ink-500 leading-relaxed">
             {post.data.description}
           </p>
           <div class="mt-6">
