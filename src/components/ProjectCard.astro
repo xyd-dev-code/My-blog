@@ -2,20 +2,16 @@
 import { type CollectionEntry } from 'astro:content';
 
 interface Props {
-  project: CollectionEntry<'posts'>;
+  project: CollectionEntry<'projects'>;
 }
 
 const { project } = Astro.props;
 const data = project.data;
-import { filterTags } from '~/consts';
-
-// ... existing code ...
-
-const tags = filterTags(data.tags ?? []);
+const tags = data.tags ?? [];
 ---
 
 <a
-  href={`/posts/${project.id}`}
+  href={`/projects/${project.id}`}
   data-tilt
   class="paper-card group block overflow-hidden transition-[transform] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-1 relative"
 >
@@ -33,7 +29,7 @@ const tags = filterTags(data.tags ?? []);
 
     <div class="absolute top-3 left-3">
       <span class="tag-chip bg-white/90 text-sky-700">
-        {project.id === 'project-retro' ? '⭐ featured' : '项目'}
+        {data.featured ? '⭐ featured' : '项目'}
       </span>
     </div>
   </div>

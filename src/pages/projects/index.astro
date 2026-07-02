@@ -3,8 +3,11 @@ import BaseLayout from '~/layouts/BaseLayout.astro';
 import ProjectCard from '~/components/ProjectCard.astro';
 import { getCollection } from 'astro:content';
 
-const all = (await getCollection('posts', ({ data }) => !data.draft && data.tags.includes('project')))
-  .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+const all = (await getCollection('projects'))
+  .sort((a, b) => {
+    if (a.data.featured !== b.data.featured) return a.data.featured ? -1 : 1;
+    return b.data.pubDate.getTime() - a.data.pubDate.getTime();
+  });
 
 const PROJECTS_PER_PAGE = 6;
 const totalPages = Math.max(1, Math.ceil(all.length / PROJECTS_PER_PAGE));
@@ -53,7 +56,7 @@ function getPageNumbers(current: number, total: number): (number | '...')[] {
     ) : (
       <div class="paper-card p-12 text-center">
         <p class="text-ink-500">
-          暂无 project 标签的文章，去 <a href="/posts" class="paper-link">/posts</a> 看看？
+          暂无项目，先去看看 <a href="/posts" class="paper-link">文章列表</a>？
         </p>
       </div>
     )}
