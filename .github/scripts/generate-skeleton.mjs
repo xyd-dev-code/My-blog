@@ -57,9 +57,9 @@ const filePath = `src/content/posts/${slug}.mdx`;
 const gitUrl = `https://x-access-token:${token}@github.com/${repo}.git`;
 
 try {
-  execSync(`git checkout -b "${branch}"`, { stdio: 'inherit' });
+  execSync(`git checkout -B "${branch}"`, { stdio: 'inherit' });
 } catch (e) {
-  console.error(`git checkout -b failed (branch may exist): ${e.message}`);
+  console.error(`git checkout -B failed: ${e.message}`);
   process.exit(1);
 }
 
@@ -73,7 +73,7 @@ const commitMsg = `feat(posts): 骨架 - ${slug}\n\nRefs #${issueNumber}`;
 const commitMsgFile = join(tmpdir(), `commit-msg-${Date.now()}.txt`);
 writeFileSync(commitMsgFile, commitMsg, 'utf8');
 execSync(`git commit -F "${commitMsgFile}"`, { stdio: 'inherit' });
-execSync(`git push -u "${gitUrl}" "${branch}"`, { stdio: 'inherit' });
+execSync(`git push -u --force-with-lease "${gitUrl}" "${branch}"`, { stdio: 'inherit' });
 
 // Open PR via REST API
 const prBody = `## 选题骨架
