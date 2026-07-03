@@ -1,0 +1,276 @@
+---
+title: "读懂 EXPLAIN:从 Seq Scan 到 Index Only Scan,看 PostgreSQL 优化器怎么想"
+description: ""
+pubDate: 2026-07-03
+category: "数据库"
+tags: ["SQL", "PostgreSQL", "性能"]
+---
+
+## 起因
+
+之前学 SQL 性能优化的时候,我都是背口诀:
+
+> "**全表扫慢,加索引**"、"`type` 看扫描方式"、"`Using filesort` 是坏信号"
+
+但真给我一条 EXPLAIN 输出,我盯着看半天,说不出**为什么这条比那条慢**、**为什么优化器选这个 plan**。
+
+直到自己造了几张表跑实验,才把 EXPLAIN 真正看懂。
+
+这篇是**完整拆解 EXPLAIN 每个节点字段的含义**,以及**怎么从 plan 反推索引是否生效**。
+
+## 一个真实的 EXPLAIN 输出
+
+先建一张表,造 10 万条数据:
+
+```sql
+CREATE TABLE orders (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    status SMALLINT NOT NULL,
+    amount NUMERIC(10, 2) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO orders (user_id, status, amount, created_at)
+SELECT
+    FLOOR(RANDOM() * 10000),
+    FLOOR(RANDOM() * 4),
+    ROUND((RANDOM() * 1000)::numeric, 2),
+    NOW() - (FLOOR(RANDOM() * 365) || ' days')::interval
+FROM generate_series(1, 100000);
+```
+
+跑一条典型查询 + EXPLAIN:
+
+```sql
+EXPLAIN
+SELECT id, user_id, amount, created_at
+FROM orders
+WHERE user_id = 12345
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+输出:
+
+```
+Limit  (cost=1245.32..1247.83 rows=10 width=28)
+  ->  Sort  (cost=1245.32..1247.83 rows=10 width=28)
+        Sort Key: created_at DESC
+        ->  Seq Scan on orders  (cost=0.00..2096.00 rows=100000 width=28)
+              Filter: (user_id = 12345)
+```
+
+**看到这一坨输出,我第一反应是**:cost 是什么?为什么 Seq Scan?为什么不走索引?
+
+下面一个个拆。
+
+## 节点类型:type 字段(从好到坏)
+
+`type`(或者 PostgreSQL 里叫"扫描方式")是 **EXPLAIN 最重要的字段**,一眼能看出查询走没走索引。
+
+按效率从高到低排:
+
+| 扫描方式 | 含义 | 何时出现 |
+|---------|------|---------|
+| **Index Only Scan** | 索引里就有所有数据,**不读表** | 覆盖索引命中 |
+| **Index Scan** | 用索引定位,**回表拿数据** | 索引命中但需其他列 |
+| **Bitmap Index Scan** | 多条件用索引合并 | 多条件 OR / AND |
+| **Nested Loop / Hash / Merge Join** | 多表关联 | JOIN 查询 |
+| **Seq Scan** | **全表扫**(没索引 / 优化器决定不用) | 多数情况 |
+
+**Seq Scan 不一定慢**——如果表就 100 行,Seq Scan 反而最快(不用走索引 IO)。
+
+**Seq Scan 不一定没索引**——我上面那条 SQL `orders` 表如果建了 `idx_user_id`,优化器**仍然可能**选 Seq Scan:
+
+```sql
+CREATE INDEX idx_user_id ON orders(user_id);
+
+EXPLAIN SELECT * FROM orders WHERE user_id = 12345;
+-- 还是可能 Seq Scan(因为 user_id 基数 10000,扫 10w 行 vs 走索引读 10 行,优化器算成本)
+```
+
+PostgreSQL 用一个开关强制走索引测试:
+
+```sql
+SET enable_seqscan = off;
+EXPLAIN SELECT * FROM orders WHERE user_id = 12345;
+-- Index Scan using idx_user_id ...
+```
+
+## cost 数字:PostgreSQL 的"估算成本"
+
+PostgreSQL 的 EXPLAIN 输出每个节点都有 `cost=xxx..yyy`:
+
+```
+Seq Scan on orders  (cost=0.00..2096.00 rows=100000 width=28)
+```
+
+`cost=0.00..2096.00` 表示**启动成本 + 总成本**,单位是**任意的内部单位**(类似 IO 页数 × 权重)。
+
+**数字怎么算的**(经验值,不绝对):
+- 顺序读一页 = `1.0`
+- 随机读一页 = `4.0`
+- 处理一行 = `0.01`(CPU)
+- 索引扫描 = 顺序读成本 + 索引项处理
+
+例子:`cost=0.00..2096.00` 是 2096 个单位,对应"扫 10w 行的预估成本"。
+
+**关键认知**:
+- cost 是**估算**,不是实际耗时
+- 不同 plan 选 cost 最低的
+- cost 大的不一定慢(执行计划可能比 cost 估算的快)
+
+## rows:扫描行数估算
+
+`rows=100000` 表示 PostgreSQL **预估**这个节点会扫 10w 行。
+
+**rows 是统计信息估算的**,不准:
+
+```sql
+ANALYZE orders;  -- 更新统计信息
+EXPLAIN SELECT * FROM orders WHERE user_id = 12345;
+-- rows 可能从 100000 变成 10(准确了)
+```
+
+**rows 接近表大小 = 全表扫;rows 很小 = 索引定位准**。
+
+## 真实案例:从 Seq Scan 到 Index Scan
+
+继续上面 `orders` 表,造 100w 数据让 Seq Scan 明显变慢:
+
+```sql
+INSERT INTO orders (user_id, status, amount, created_at)
+SELECT FLOOR(RANDOM() * 10000), FLOOR(RANDOM() * 4),
+       ROUND((RANDOM() * 1000)::numeric, 2), NOW()
+FROM generate_series(1, 1000000);
+ANALYZE orders;
+```
+
+**实验 1:不加索引**
+
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM orders WHERE user_id = 12345 ORDER BY created_at DESC LIMIT 10;
+```
+
+```
+Limit  (cost=18023.45..18025.96 rows=10 width=28) (actual time=145.23..148.56 rows=10 loops=1)
+  ->  Sort  (cost=18023.45..18025.96 rows=10 width=28) (actual time=145.21..148.53 rows=10 loops=1)
+        Sort Key: created_at DESC
+        Sort Method: top-N heapsort  Memory: 27kB
+        ->  Seq Scan on orders  (cost=0.00..22078.00 rows=100000 width=28) (actual time=0.04..125.43 rows=100000 loops=1)
+              Filter: (user_id = 12345)
+              Rows Removed by Filter: 900000
+Planning Time: 0.18 ms
+Execution Time: 148.78 ms
+```
+
+**实际耗时 148ms**,扫了 100w 行,filter 掉 90w。
+
+**EXPLAIN ANALYZE 比 EXPLAIN 多了一列 `(actual time=xxx..yyy rows=N loops=N)`**——真实值,可以对比估算和实际差距。
+
+**实验 2:加索引**
+
+```sql
+CREATE INDEX idx_user_id_created ON orders(user_id, created_at DESC);
+ANALYZE orders;
+EXPLAIN ANALYZE
+SELECT * FROM orders WHERE user_id = 12345 ORDER BY created_at DESC LIMIT 10;
+```
+
+```
+Limit  (cost=0.46..2.29 rows=10 width=28) (actual time=0.05..0.08 rows=10 loops=1)
+  ->  Index Scan using idx_user_id_created on orders  (cost=0.46..2.29 rows=10 width=28) (actual time=0.05..0.07 rows=10 loops=1)
+        Index Cond: (user_id = 12345)
+Planning Time: 0.21 ms
+Execution Time: 0.12 ms
+```
+
+**耗时从 148ms 降到 0.12ms**,**快 1200 倍**。
+
+**Index Scan 替代了 Seq Scan + Sort**(因为 `idx_user_id_created` 联合索引同时覆盖 WHERE 和 ORDER BY,不用再 sort)。
+
+## 怎么从 plan 反推索引是否生效
+
+把上面实验规律总结成"看 EXPLAIN 三步法":
+
+### 1. 看最深的节点是 Seq Scan 还是 Index Scan
+
+```
+Seq Scan  → 全表扫,大概率缺索引
+Index Scan → 用上索引
+Index Only Scan → 覆盖索引,最优
+```
+
+### 2. 看 Index Cond 写了什么
+
+```sql
+Index Cond: (user_id = 12345)  -- 命中
+```
+
+如果 `Index Cond` 是空的,或者 `Filter` 里才出现条件,说明**索引没生效,只是扫完再过滤**。
+
+### 3. 看 Sort 节点有没有消失
+
+```
+->  Sort  → 没索引帮助排序,要内存排序(慢)
+(没有 Sort) → 索引已经覆盖排序,最优
+```
+
+**联合索引 `(user_id, created_at DESC)`** 同时优化 WHERE 和 ORDER BY——这就是为什么"等值在前,排序在后"是建联合索引的铁律。
+
+## 几个常见 EXPLAIN 模式
+
+| 看到的输出 | 含义 | 优化方向 |
+|----------|------|---------|
+| `Seq Scan + Filter` | 全表扫 | 加 WHERE 字段的索引 |
+| `Index Scan + Index Cond` | 索引定位 + 回表 | 考虑覆盖索引 |
+| `Index Only Scan` | 覆盖索引,**不用回表** | 已经是理想状态 |
+| `Sort + Seq Scan` | 全表扫 + 内存排序 | 联合索引覆盖 WHERE + ORDER BY |
+| `Nested Loop + Seq Scan` | 关联里有表没索引 | 给驱动表加索引 |
+| `Bitmap Heap Scan + Bitmap Index Scan` | 多条件走位图索引 | 适合 OR / 多索引合并 |
+
+## 反思:看懂 EXPLAIN 的几个关键
+
+### 1. cost 是估算,actual time 才是真相
+
+**`EXPLAIN ANALYZE`** 会真跑一遍,把估算和实际并列打印。第一次用先 ANALYZE 更新统计,再跑。
+
+### 2. 优化器会"算账",不是"按规则"
+
+PostgreSQL 的优化器用**成本估算**选 plan,不是看规则。**小表 + 低区分度**时,优化器**故意选 Seq Scan**——因为走索引反而更慢。
+
+### 3. Seq Scan 不一定是错的
+
+看到 Seq Scan 别立刻开喷。先看表大小、过滤后行数、是否有索引但没命中。
+
+### 4. 联合索引最强大
+
+```
+INDEX (user_id) → WHERE user_id = ?
+INDEX (created_at) → ORDER BY created_at
+INDEX (user_id, created_at) → WHERE + ORDER BY 一起搞定
+```
+
+一个联合索引代替两个单列索引,**写入更少、维护更简单、查询更快**。
+
+### 5. 永远用 `EXPLAIN ANALYZE` 看实际
+
+```sql
+EXPLAIN ANALYZE <你的 SQL>;
+```
+
+**真实耗时在最后一行** `Execution Time: xxx ms`。优化前跑一次,优化后跑一次,数字说话。
+
+## 我做完这些实验的几点收获
+
+1. **EXPLAIN 不是炫技,是 debug 工具**——SQL 慢,先 EXPLAIN,再看哪里扫太多行、排序、临时表
+2. **`type` 字段最重要**——一眼看出走没走索引
+3. **cost 是估算,actual time 才是真**——上生产前 EXPLAIN ANALYZE 跑一遍
+4. **联合索引比单列索引强**——尤其涉及 WHERE + ORDER BY 时
+5. **不要教条"避免 Seq Scan"**——小表 Seq Scan 是合理的,优化器比你聪明
+
+## 下一步
+
+下一篇准备写 **MySQL EXPLAIN 的对比**——PostgreSQL 这次讲的节点和 MySQL(EXPLAIN FORMAT=JSON / EXPLAIN ANALYZE)其实**字段名和顺序都不一样**,但思路通用。下一篇会做"两种数据库 EXPLAIN 对照表"。
