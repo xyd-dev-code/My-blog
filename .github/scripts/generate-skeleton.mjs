@@ -66,9 +66,13 @@ try {
 writeFileSync(filePath, mdx, 'utf8');
 console.log(`Wrote skeleton: ${filePath}`);
 
+execSync('git config user.email "github-actions[bot]@users.noreply.github.com"', { stdio: 'inherit' });
+execSync('git config user.name "github-actions[bot]"', { stdio: 'inherit' });
 execSync(`git add "${filePath}"`, { stdio: 'inherit' });
 const commitMsg = `feat(posts): 骨架 - ${slug}\n\nRefs #${issueNumber}`;
-execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`, { stdio: 'inherit' });
+const commitMsgFile = join(tmpdir(), `commit-msg-${Date.now()}.txt`);
+writeFileSync(commitMsgFile, commitMsg, 'utf8');
+execSync(`git commit -F "${commitMsgFile}"`, { stdio: 'inherit' });
 execSync(`git push -u "${gitUrl}" "${branch}"`, { stdio: 'inherit' });
 
 // Open PR via REST API
