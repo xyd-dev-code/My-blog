@@ -19,9 +19,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # PR body 包含 "Refs #N" 或 "Issue #N" 的形式
+          # PR body contains many "#N" (PR title, `/blog-draft 1`, `## headings`).
+          # Match the explicit "Issue #N" / "Refs #N" link we added in generate-skeleton.
           PR_BODY="${{ github.event.pull_request.body }}"
-          ISSUE_NUM=$(echo "$PR_BODY" | grep -oE '#([0-9]+)' | head -1 | tr -d '#')
+          ISSUE_NUM=$(echo "$PR_BODY" | grep -oE '(Issue|Refs)\s+#([0-9]+)' | head -1 | grep -oE '[0-9]+')
           if [ -z "$ISSUE_NUM" ]; then
             echo "No linked issue found in PR body"
             exit 0
