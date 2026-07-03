@@ -95,7 +95,11 @@ ${pointsBody}
 合并后 workflow 会自动把 Issue 标记为 topic-published。
 `;
 
-const prRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}/pulls`, {
+// Open PR via REST API. If a PR already exists for this branch (e.g. from a prior
+// failed run that pushed the branch but never finished creating the PR), look it up
+// and reuse it instead of erroring out.
+let pr;
+const createRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}/pulls`, {
   method: 'POST',
   headers: {
     'Accept': 'application/vnd.github+json',
@@ -111,11 +115,31 @@ const prRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}/pul
   }),
 });
 
-if (!prRes.ok) {
-  const text = await prRes.text();
-  console.error(`PR create failed (${prRes.status}): ${text}`);
+if (createRes.status === 422) {
+  const errText = await createRes.text();
+  if (errText.includes('already exists')) {
+    // Find the existing open PR for this branch
+    const listRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repoName}/pulls?head=${owner}:${branch}&state=open`,
+      { headers: { 'Accept': 'application/vnd.github+json', 'Authorization': `Bearer ${token}` } },
+    );
+    const list = await listRes.json();
+    if (Array.isArray(list) && list.length > 0) {
+      pr = list[0];
+      console.log(`Reusing existing PR #${pr.number}`);
+    } else {
+      console.error(`PR create returned 422 but no open PR found for ${branch}: ${errText}`);
+      process.exit(1);
+    }
+  } else {
+    console.error(`PR create failed (422): ${errText}`);
+    process.exit(1);
+  }
+} else if (!createRes.ok) {
+  console.error(`PR create failed (${createRes.status}): ${await createRes.text()}`);
   process.exit(1);
+} else {
+  pr = await createRes.json();
 }
 
-const pr = await prRes.json();
 console.log(JSON.stringify({ branch, file_path: filePath, pr_url: pr.html_url }));
