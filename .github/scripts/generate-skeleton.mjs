@@ -73,7 +73,10 @@ const commitMsg = `feat(posts): 骨架 - ${slug}\n\nRefs #${issueNumber}`;
 const commitMsgFile = join(tmpdir(), `commit-msg-${Date.now()}.txt`);
 writeFileSync(commitMsgFile, commitMsg, 'utf8');
 execSync(`git commit -F "${commitMsgFile}"`, { stdio: 'inherit' });
-execSync(`git push -u --force-with-lease "${gitUrl}" "${branch}"`, { stdio: 'inherit' });
+// Use plain --force in CI: this branch is exclusively owned by us (we just created it
+// in the previous step), so overwriting any prior half-push is safe. --force-with-lease
+// requires a cached origin ref, which fetch-depth: 1 does not provide.
+execSync(`git push -u --force "${gitUrl}" "${branch}"`, { stdio: 'inherit' });
 
 // Open PR via REST API
 const prBody = `## 选题骨架
