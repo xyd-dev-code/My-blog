@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Create branch + MDX skeleton + open PR
-// Usage: SLUG=foo TITLE=Bar CATEGORY=数据库 TAGS_JSON='["a","b"]' POINTS_BODY="..." ISSUE_NUMBER=42 ISSUE_URL=https://... GH_TOKEN=... GITHUB_REPOSITORY=owner/repo node generate-skeleton.mjs
+// Create branch + MDX skeleton + open PR via GitHub REST API
+// Usage: SLUG=foo TITLE=Bar CATEGORY=数据库 TAGS_JSON='["a","b"]' POINTS_BODY="..." ISSUE_NUMBER=42 ISSUE_URL=https://... GITHUB_TOKEN=... GITHUB_REPOSITORY=owner/repo node generate-skeleton.mjs
 
 import { execSync } from 'node:child_process';
 import { writeFileSync, mkdtempSync } from 'node:fs';
@@ -15,10 +15,16 @@ const pointsBody = process.env.POINTS_BODY || '';
 const issueNumber = process.env.ISSUE_NUMBER;
 const issueUrl = process.env.ISSUE_URL;
 const repo = process.env.GITHUB_REPOSITORY;
-const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+const token = process.env.GITHUB_TOKEN;
 
-if (!slug || !title || !category || !issueNumber || !repo || !ghToken) {
-  console.error('Missing required env: SLUG, TITLE, CATEGORY, ISSUE_NUMBER, GITHUB_REPOSITORY, GH_TOKEN');
+if (!slug || !title || !category || !issueNumber || !repo || !token) {
+  console.error('Missing required env: SLUG, TITLE, CATEGORY, ISSUE_NUMBER, GITHUB_REPOSITORY, GITHUB_TOKEN');
+  process.exit(1);
+}
+
+const [owner, repoName] = repo.split('/');
+if (!owner || !repoName) {
+  console.error(`Invalid GITHUB_REPOSITORY: ${repo}`);
   process.exit(1);
 }
 
@@ -47,10 +53,11 @@ ${pointsBody}
 const branch = `topic/${slug}`;
 const filePath = `src/content/posts/${slug}.mdx`;
 
-const env = { ...process.env, GITHUB_TOKEN: ghToken, GH_TOKEN: ghToken };
+// Configure git with GITHUB_TOKEN for push
+const gitUrl = `https://x-access-token:${token}@github.com/${repo}.git`;
 
 try {
-  execSync(`git checkout -b "${branch}"`, { stdio: 'inherit', env });
+  execSync(`git checkout -b "${branch}"`, { stdio: 'inherit' });
 } catch (e) {
   console.error(`git checkout -b failed (branch may exist): ${e.message}`);
   process.exit(1);
@@ -59,14 +66,12 @@ try {
 writeFileSync(filePath, mdx, 'utf8');
 console.log(`Wrote skeleton: ${filePath}`);
 
-execSync(`git add "${filePath}"`, { stdio: 'inherit', env });
+execSync(`git add "${filePath}"`, { stdio: 'inherit' });
 const commitMsg = `feat(posts): 骨架 - ${slug}\n\nRefs #${issueNumber}`;
-execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`, { stdio: 'inherit', env });
-execSync(`git push -u origin "${branch}"`, { stdio: 'inherit', env });
+execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`, { stdio: 'inherit' });
+execSync(`git push -u "${gitUrl}" "${branch}"`, { stdio: 'inherit' });
 
-// Write PR body to temp file to avoid shell-escaping issues
-const tmpDir = mkdtempSync(join(tmpdir(), 'pr-body-'));
-const bodyFile = join(tmpDir, 'body.md');
+// Open PR via REST API
 const prBody = `## 选题骨架
 
 来自 Issue #${issueNumber}
@@ -82,14 +87,28 @@ ${pointsBody}
 
 合并后 workflow 会自动把 Issue 标记为 topic-published。
 `;
-writeFileSync(bodyFile, prBody, 'utf8');
 
-const prJson = execSync(
-  `gh pr create --base main --head "${branch}" --title "骨架 - ${slug}" --body-file "${bodyFile}" --repo "${repo}"`,
-  { encoding: 'utf8', env }
-).trim();
+const prRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}/pulls`, {
+  method: 'POST',
+  headers: {
+    'Accept': 'application/vnd.github+json',
+    'Authorization': `Bearer ${token}`,
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    title: `骨架 - ${slug}`,
+    head: branch,
+    base: 'main',
+    body: prBody,
+  }),
+});
 
-const prUrlMatch = prJson.match(/https:\/\/github\.com\/[^\s]+/);
-const prUrl = prUrlMatch ? prUrlMatch[0] : prJson;
+if (!prRes.ok) {
+  const text = await prRes.text();
+  console.error(`PR create failed (${prRes.status}): ${text}`);
+  process.exit(1);
+}
 
-console.log(JSON.stringify({ branch, file_path: filePath, pr_url: prUrl }));
+const pr = await prRes.json();
+console.log(JSON.stringify({ branch, file_path: filePath, pr_url: pr.html_url }));
