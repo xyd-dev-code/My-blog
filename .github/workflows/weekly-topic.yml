@@ -26,68 +26,65 @@ jobs:
         with:
           node-version: 20
 
-      - name: Find earliest pending topic
-        id: find
+      - name: Find + parse + skeleton + email (single shell step)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PENDING=$(node .github/scripts/find-pending-issue.mjs)
-          echo "raw<<EOF" >> $GITHUB_OUTPUT
-          echo "$PENDING" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Skip if no pending
-        if: steps.find.outputs.raw == '{}'
-        run: echo "No pending topics, skipped."
-
-      - name: Parse Issue body
-        if: steps.find.outputs.raw != '{}'
-        id: parse
-        env:
-          ISSUE_BODY: ${{ fromJson(steps.find.outputs.raw).body }}
-        run: |
-          PARSED=$(echo "$ISSUE_BODY" | node .github/scripts/parse-issue.mjs)
-          echo "raw<<EOF" >> $GITHUB_OUTPUT
-          echo "$PARSED" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Generate skeleton + open PR
-        if: steps.find.outputs.raw != '{}'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SLUG: ${{ fromJson(steps.parse.outputs.raw).slug }}
-          TITLE: ${{ fromJson(steps.parse.outputs.raw).title }}
-          CATEGORY: ${{ fromJson(steps.parse.outputs.raw).category }}
-          TAGS_JSON: ${{ toJson(fromJson(steps.parse.outputs.raw).tags) }}
-          POINTS_BODY: ${{ fromJson(steps.parse.outputs.raw).body_after_frontmatter }}
-          ISSUE_NUMBER: ${{ fromJson(steps.find.outputs.raw).number }}
-          ISSUE_URL: ${{ fromJson(steps.find.outputs.raw).url }}
-        run: |
-          RESULT=$(node .github/scripts/generate-skeleton.mjs)
-          echo "result=$RESULT"
-
-      - name: Send reminder email
-        if: steps.find.outputs.raw != '{}'
-        env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
-          SUBJECT: "[博客选题] ${{ fromJson(steps.parse.outputs.raw).title }}"
-          BODY: |
-            本周选题:#${{ fromJson(steps.find.outputs.raw).number }}
-
-            主题:${{ fromJson(steps.parse.outputs.raw).title }}
-            分类:${{ fromJson(steps.parse.outputs.raw).category }}
-
-            Issue:${{ fromJson(steps.find.outputs.raw).url }}
-
-            骨架 PR 已创建,请在本地跑 /blog-draft ${{ fromJson(steps.find.outputs.raw).number }} 生成草稿。
-        run: node .github/scripts/send-email.mjs
-
-      - name: Update Issue label to drafting
-        if: steps.find.outputs.raw != '{}'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ISSUE_NUM=${{ fromJson(steps.find.outputs.raw).number }}
-          gh issue edit "$ISSUE_NUM" --remove-label "topic-pending" --add-label "topic-drafting" --repo "$GITHUB_REPOSITORY"
+          set -euo pipefail
+
+          # 1. Find earliest pending topic
+          PENDING=$(node .github/scripts/find-pending-issue.mjs)
+          if [ "$PENDING" = "{}" ]; then
+            echo "No pending topics, skipped."
+            exit 0
+          fi
+
+          # 2. Extract fields from PENDING via node
+          ISSUE_NUMBER=$(node -e "console.log(JSON.parse(process.argv[1]).number)" "$PENDING")
+          ISSUE_URL=$(node -e "console.log(JSON.parse(process.argv[1]).url)" "$PENDING")
+          ISSUE_BODY=$(node -e "console.log(JSON.parse(process.argv[1]).body)" "$PENDING")
+
+          # 3. Parse Issue body
+          PARSED=$(echo "$ISSUE_BODY" | node .github/scripts/parse-issue.mjs)
+          if [ -z "$PARSED" ]; then
+            echo "::error::parse-issue returned empty for issue #$ISSUE_NUMBER"
+            exit 1
+          fi
+          ERROR=$(node -e "console.log(JSON.parse(process.argv[1]).error || '')" "$PARSED")
+          if [ -n "$ERROR" ] && [ "$ERROR" != "null" ]; then
+            echo "::error::parse-issue error: $ERROR"
+            gh issue comment "$ISSUE_NUMBER" --body "⚠️ weekly-topic workflow failed to parse this issue: \`$ERROR\`" --repo "$GITHUB_REPOSITORY" || true
+            exit 1
+          fi
+
+          # 4. Extract fields from PARSED
+          SLUG=$(node -e "console.log(JSON.parse(process.argv[1]).slug)" "$PARSED")
+          TITLE=$(node -e "console.log(JSON.parse(process.argv[1]).title)" "$PARSED")
+          CATEGORY=$(node -e "console.log(JSON.parse(process.argv[1]).category)" "$PARSED")
+          TAGS_JSON=$(node -e "console.log(JSON.stringify(JSON.parse(process.argv[1]).tags))" "$PARSED")
+          POINTS_BODY=$(node -e "console.log(JSON.parse(process.argv[1]).body_after_frontmatter)" "$PARSED")
+
+          # 5. Generate skeleton + open PR
+          export SLUG TITLE CATEGORY TAGS_JSON POINTS_BODY ISSUE_NUMBER ISSUE_URL
+          node .github/scripts/generate-skeleton.mjs
+
+          # 6. Send reminder email
+          export SUBJECT="[博客选题] $TITLE"
+          BODY="本周选题:#$ISSUE_NUMBER
+
+          主题:$TITLE
+          分类:$CATEGORY
+
+          Issue:$ISSUE_URL
+
+          骨架 PR 已创建,请在本地跑 /blog-draft $ISSUE_NUMBER 生成草稿。"
+          export BODY
+          node .github/scripts/send-email.mjs
+
+          # 7. Update Issue label
+          gh issue edit "$ISSUE_NUMBER" --remove-label "topic-pending" --add-label "topic-drafting" --repo "$GITHUB_REPOSITORY"
+
+          echo "Done. Issue #$ISSUE_NUMBER (slug=$SLUG) is now drafting."
