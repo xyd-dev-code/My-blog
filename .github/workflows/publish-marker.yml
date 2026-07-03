@@ -1,0 +1,38 @@
+name: Mark Topic Published
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - 'src/content/posts/**'
+
+permissions:
+  issues: write
+
+jobs:
+  mark-published:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Find linked Issue from PR body
+        id: find-issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # PR body 包含 "Refs #N" 或 "Issue #N" 的形式
+          PR_BODY="${{ github.event.pull_request.body }}"
+          ISSUE_NUM=$(echo "$PR_BODY" | grep -oE '#([0-9]+)' | head -1 | tr -d '#')
+          if [ -z "$ISSUE_NUM" ]; then
+            echo "No linked issue found in PR body"
+            exit 0
+          fi
+          echo "issue_num=$ISSUE_NUM" >> $GITHUB_OUTPUT
+
+      - name: Update label and close
+        if: steps.find-issue.outputs.issue_num != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUM=${{ steps.find-issue.outputs.issue_num }}
+          gh issue edit "$ISSUE_NUM" --remove-label "topic-drafting" --remove-label "topic-pending" --add-label "topic-published" --repo "$GITHUB_REPOSITORY"
+          gh issue close "$ISSUE_NUM" --reason "completed" --repo "$GITHUB_REPOSITORY"
