@@ -19,7 +19,8 @@ try {
     `gh search issues --json number,title,body,url --limit 1 --repo "${repo}" -- "${searchQuery}"`,
     {
       encoding: 'utf8',
-      env: { ...process.env, GH_TOKEN: process.env.GITHUB_TOKEN },
+      // gh CLI requires GITHUB_TOKEN env var (not GH_TOKEN); expose both for safety
+      env: { ...process.env, GH_TOKEN: process.env.GITHUB_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN },
       stdio: ['ignore', 'pipe', 'pipe'],
     }
   ).trim();

@@ -15,7 +15,7 @@ const pointsBody = process.env.POINTS_BODY || '';
 const issueNumber = process.env.ISSUE_NUMBER;
 const issueUrl = process.env.ISSUE_URL;
 const repo = process.env.GITHUB_REPOSITORY;
-const ghToken = process.env.GH_TOKEN;
+const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
 
 if (!slug || !title || !category || !issueNumber || !repo || !ghToken) {
   console.error('Missing required env: SLUG, TITLE, CATEGORY, ISSUE_NUMBER, GITHUB_REPOSITORY, GH_TOKEN');
@@ -47,7 +47,7 @@ ${pointsBody}
 const branch = `topic/${slug}`;
 const filePath = `src/content/posts/${slug}.mdx`;
 
-const env = { ...process.env, GH_TOKEN: ghToken };
+const env = { ...process.env, GITHUB_TOKEN: ghToken, GH_TOKEN: ghToken };
 
 try {
   execSync(`git checkout -b "${branch}"`, { stdio: 'inherit', env });
