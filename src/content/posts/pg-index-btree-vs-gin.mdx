@@ -1,0 +1,19 @@
+---
+title: "PostgreSQL 索引怎么选:B-Tree 还是 GIN?"
+pubDate: 2026-07-03
+description: ""
+category: "数据库"
+tags: ["PostgreSQL", "索引", "性能"]
+---
+
+## 选题要点
+
+- B-Tree 适用场景:等值、范围、前缀匹配
+- GIN 适用场景:数组、JSONB、全文检索
+- 一句话决策树:先 EXPLAIN,看 cardinality,再选类型
+
+## 草稿
+
+> 由 `/blog-draft` 命令生成的 AI 草稿粘贴到此处。参考骨架 Issue: https://github.com/xyd-dev-code/My-blog/issues/1
+
+<!-- 本 PR 合并后,workflow 会把 Issue #1 标记为 topic-published -->
