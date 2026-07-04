@@ -88,7 +88,7 @@ ${pointsBody}
 ## 下一步
 
 1. 本地跑 \`/blog-draft ${issueNumber}\` 生成草稿
-2. 粘贴到 \`${filePath}\` 的 "## 草稿" 部分
+2. 粘贴到 \`${filePath}\` 的 \`## 草稿\` 段落下方
 3. 调整 frontmatter(description/tags)
 4. 合并 PR
 
