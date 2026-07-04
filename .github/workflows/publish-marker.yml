@@ -19,10 +19,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # PR body contains many "#N" (PR title, `/blog-draft 1`, `## headings`).
-          # Match the explicit "Issue #N" / "Refs #N" link we added in generate-skeleton.
-          PR_BODY="${{ github.event.pull_request.body }}"
-          ISSUE_NUM=$(echo "$PR_BODY" | grep -oE '(Issue|Refs)\s+#([0-9]+)' | head -1 | grep -oE '[0-9]+')
+          # PR body may contain quotes / backticks / multi-line content, so write it
+          # to a file via heredoc instead of inlining into a double-quoted shell
+          # variable. Inline ${{ ... }} + embedded "## 草稿" in PR body previously
+          # broke with exit 127 (early-close on unescaped ").
+          cat > /tmp/pr_body.txt <<PR_BODY_EOF
+${{ github.event.pull_request.body }}
+PR_BODY_EOF
+          ISSUE_NUM=$(grep -oE '(Issue|Refs)\s+#([0-9]+)' /tmp/pr_body.txt | head -1 | grep -oE '[0-9]+')
           if [ -z "$ISSUE_NUM" ]; then
             echo "No linked issue found in PR body"
             exit 0
