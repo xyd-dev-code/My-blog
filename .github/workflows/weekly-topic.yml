@@ -1,10 +1,10 @@
 name: Weekly Topic Picker
 
 on:
-  schedule:
-    # UTC 周一/周四 01:00 = 北京时间 09:00
-    - cron: '0 1 * * 1'
-    - cron: '0 1 * * 4'
+  # schedule:
+  #   # UTC 周一/周四 01:00 = 北京时间 09:00
+  #   - cron: '0 1 * * 1'
+  #   - cron: '0 1 * * 4'
   workflow_dispatch: # 允许手动触发测试
 
 permissions:
