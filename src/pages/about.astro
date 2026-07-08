@@ -10,7 +10,12 @@ const email = 'x2597486661@gmail.com';
 >
   <section class="mx-auto max-w-3xl px-4 sm:px-6 py-16 sm:py-24">
     <header class="text-center">
-      <div class="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-sky-300 to-sky-500 ring-2 ring-white shadow-sm"></div>
+      <img
+        src={SITE.avatar}
+        alt={SITE.author}
+        class="mx-auto w-16 h-16 rounded-full object-cover ring-2 ring-white shadow-sm"
+        onerror="this.onerror=null;this.outerHTML='<div class=&quot;mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-sky-300 to-sky-500 ring-2 ring-white shadow-sm&quot;></div>'"
+      />
       <h1 class="mt-5 font-display text-3xl sm:text-4xl font-bold tracking-tight text-ink-900">
         {SITE.author}
       </h1>
