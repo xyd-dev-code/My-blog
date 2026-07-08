@@ -11,10 +11,12 @@ export const SITE = {
 };
 
 export const NAV = [
-  { href: '/', label: 'Home' },
-  { href: '/posts', label: 'Posts' },
-  { href: '/projects', label: 'Projects' },
-  { href: '/about', label: 'About' },
+  { href: '/', label: '首页' },
+  { href: '/posts', label: '文章' },
+  { href: '/projects', label: '项目' },
+  { href: '/friends', label: '友链' },
+  { href: '/guestbook', label: '留言' },
+  { href: '/about', label: '关于' },
 ];
 
 export const SOCIALS = [
