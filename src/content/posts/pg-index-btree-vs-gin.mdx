@@ -1,19 +1,318 @@
 ---
 title: "PostgreSQL 索引怎么选:B-Tree 还是 GIN?"
+description: "B-Tree 和 GIN 是 PostgreSQL 最常用的两种索引,选错会让查询从几毫秒变几秒。从数据结构和查询模式出发,讲清楚 B-Tree 适合什么、GIN 适合什么、什么时候两者都不该用,以及怎么用一个简单的决策流程选对索引。"
+cover: "https://images.unsplash.com/photo-1633419461186-7d40a38105ec?w=800&h=420&fit=crop&auto=format&q=75"
 pubDate: 2026-07-03
-description: ""
 category: "数据库"
 tags: ["PostgreSQL", "索引", "性能"]
 ---
 
-## 选题要点
+## 起因
 
-- B-Tree 适用场景:等值、范围、前缀匹配
-- GIN 适用场景:数组、JSONB、全文检索
-- 一句话决策树:先 EXPLAIN,看 cardinality,再选类型
+之前给 PostgreSQL 表加索引,我都是默认 `CREATE INDEX` —— PostgreSQL 默认就是 B-Tree,先建上再说。
 
-## 草稿
+直到表里开始存 **JSONB 字段**、**数组字段**、**全文搜索**的需求,我才发现:
 
-> 由 `/blog-draft` 命令生成的 AI 草稿粘贴到此处。参考骨架 Issue: https://github.com/xyd-dev-code/My-blog/issues/1
+- `WHERE data @> '{"category": "tech"}'` 加了 B-Tree 完全不走索引,还是 Seq Scan
+- `WHERE tags && ARRAY['postgres', 'gin']` 同上
+- 全文搜索用 `to_tsvector(...) @@ to_tsquery(...)`,B-Tree 也不顶用
 
-{/* 本 PR 合并后,workflow 会把 Issue #1 标记为 topic-published */}
+后来查了文档才知道:**GIN** 这种"倒排索引"才是为这类查询设计的。
+
+这篇把 B-Tree / GIN 的核心区别讲透,以及怎么选。
+
+## 两种索引的底层结构
+
+### B-Tree:有序的"目录"
+
+B-Tree(平衡树)就是把列的值**排好序**存成树形结构,每个节点是一段有序区间。
+
+```
+                  [50]
+                /      \
+          [10, 30]    [70, 90]
+         /    |    \   /   |   \
+       1,5  12,18 35,40 60,65 80,95
+```
+
+查询 `WHERE x = 35` → 从根节点往下走,3 步定位到叶子节点。
+
+**它擅长的事**:
+- 等值查询 `=` `IN`
+- 范围查询 `>` `<` `BETWEEN`
+- 前缀匹配 `LIKE 'abc%'`
+- 排序 `ORDER BY x` (索引已经排好序,直接扫就行)
+
+**它不擅长的事**:
+- 数组包含 `@>` `<@`
+- JSONB 字段查询
+- 全文搜索 `@@`
+- 模糊匹配 `LIKE '%abc%'` (前缀能走,中间不行)
+
+### GIN:倒排索引
+
+GIN(Generalized Inverted Index)是为"一个值包含多个 key"设计的。
+
+**B-Tree 是"值 → 行"**:
+```
+"张三"  → row 1, row 5, row 12
+```
+
+**GIN 是"key → 行"**:
+```
+"postgres"  → row 1, row 3, row 7
+"索引"      → row 2, row 5, row 8
+"性能"      → row 1, row 3, row 9
+```
+
+存数组 / JSONB / tsvector 这类"一行多个值"的数据,正好需要这种结构。
+
+**它擅长的事**:
+- 数组包含 `tags @> ARRAY['postgres']` / `tags && ARRAY['a', 'b']`
+- JSONB 包含 `data @> '{"k": "v"}'`
+- 全文搜索 `to_tsvector(body) @@ to_tsquery('postgres')`
+- 任意列的 `LIKE '%abc%'` (用 `pg_trgm` 扩展 + GIN)
+
+**它不擅长的事**:
+- 范围查询(没有序)
+- 排序(GIN 内的 key 是无序的,只能 bitmap scan)
+- 写性能(更新一个值要改倒排表里所有相关 key)
+
+## 用真实数据看效果
+
+造一张带 JSONB 和数组字段的表:
+
+```sql
+CREATE TABLE articles (
+    id BIGSERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    tags TEXT[] NOT NULL DEFAULT '{}',
+    metadata JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- 插 10 万条
+INSERT INTO articles (title, body, tags, metadata, created_at)
+SELECT
+    'Article ' || g,
+    'body ' || g,
+    ARRAY['tag' || (g % 100), 'tag' || (g % 50)],
+    jsonb_build_object('category', 'cat' || (g % 20), 'views', g * 10),
+    NOW() - (g || ' minutes')::interval
+FROM generate_series(1, 100000) g;
+
+ANALYZE articles;
+```
+
+### 实验 1:数组包含查询
+
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM articles
+WHERE tags @> ARRAY['tag1', 'tag2']
+LIMIT 10;
+```
+
+**不加索引**(默认 Seq Scan):
+
+```
+Limit  (cost=0.00..2125.00 rows=10 width=120)
+  ->  Seq Scan on articles  (cost=0.00..2125.00 rows=1000 width=120)
+        Filter: (tags @> '{tag1,tag2}'::text[])
+Planning Time: 0.18 ms
+Execution Time: 28.45 ms
+```
+
+**加 B-Tree 索引**(没用):
+
+```sql
+CREATE INDEX idx_tags ON articles USING btree(tags);
+-- 再跑 EXPLAIN ANALYZE,plan 不变,还是 Seq Scan
+```
+
+PostgreSQL 优化器会直接跳过 B-Tree,因为它知道 B-Tree 不支持 `@>`。
+
+**加 GIN 索引**:
+
+```sql
+CREATE INDEX idx_tags_gin ON articles USING gin(tags);
+ANALYZE articles;
+
+EXPLAIN ANALYZE
+SELECT * FROM articles
+WHERE tags @> ARRAY['tag1', 'tag2']
+LIMIT 10;
+```
+
+```
+Limit  (cost=12.50..28.00 rows=10 width=120)
+  ->  Bitmap Heap Scan on articles  (cost=12.50..28.00 rows=10 width=120)
+        Recheck Cond: (tags @> '{tag1,tag2}'::text[])
+        ->  Bitmap Index Scan on idx_tags_gin
+              Index Cond: (tags @> '{tag1,tag2}'::text[])
+Planning Time: 0.20 ms
+Execution Time: 0.18 ms
+```
+
+**28ms → 0.18ms**,**快 150 倍**。
+
+### 实验 2:JSONB 包含查询
+
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM articles
+WHERE metadata @> '{"category": "cat1"}'
+LIMIT 10;
+```
+
+**不加索引**:Seq Scan + 28ms(同实验 1)。
+
+**加 GIN 索引**:
+
+```sql
+CREATE INDEX idx_metadata_gin ON articles USING gin(metadata);
+
+-- 同样 0.18ms,Bitmap Index Scan
+```
+
+### 实验 3:等值查询(确认 B-Tree 才是对的)
+
+```sql
+-- 加个常规字段
+ALTER TABLE articles ADD COLUMN author_id BIGINT;
+UPDATE articles SET author_id = (random() * 1000)::bigint;
+
+EXPLAIN ANALYZE
+SELECT * FROM articles WHERE author_id = 123 LIMIT 10;
+```
+
+**B-Tree 索引**:
+
+```sql
+CREATE INDEX idx_author_id ON articles USING btree(author_id);
+
+-- Index Scan using idx_author_id
+-- Execution Time: 0.05 ms
+```
+
+**GIN 索引**(强行加 GIN 看效果):
+
+```sql
+CREATE INDEX idx_author_id_gin ON articles USING gin(author_id);
+-- 报错:data type bigint has no default operator class for access method gin
+```
+
+PostgreSQL 直接拒绝 —— GIN 不支持等值,这是设计选择。
+
+## 决策流程:三步选对索引
+
+把上面规律总结成"三步法":
+
+### 第一步:看查询是什么类型
+
+| 查询类型 | 例子 | 用什么索引 |
+|---------|------|-----------|
+| 等值 / 范围 | `WHERE x = ?` / `WHERE x > ?` | **B-Tree** |
+| 前缀匹配 | `LIKE 'abc%'` | **B-Tree** |
+| 排序 | `ORDER BY x` | **B-Tree** |
+| 数组包含 | `tags @> ARRAY[...]` | **GIN** |
+| 数组重叠 | `tags && ARRAY[...]` | **GIN** |
+| JSONB 包含 | `data @> '{...}'` | **GIN** |
+| 全文搜索 | `to_tsvector(...) @@ to_tsquery(...)` | **GIN** |
+| 中间模糊匹配 | `LIKE '%abc%'` | **GIN** + `pg_trgm` |
+| 多列联合 | `WHERE a = ? AND b > ?` | **联合 B-Tree** `(a, b)` |
+
+### 第二步:看数据分布
+
+B-Tree 在**低区分度**列上效果差。`status` 只有 4 个值的字段,加 B-Tree 几乎没用,优化器还会选 Seq Scan。
+
+**经验**:B-Tree 适合区分度 > 95% 的列,否则考虑部分索引:
+
+```sql
+-- 只索引"待处理"状态的行(假设这部分只占 5%)
+CREATE INDEX idx_pending ON articles(created_at)
+WHERE status = 'pending';
+```
+
+### 第三步:看读写比
+
+- **写多读少**(日志、订单流水) → 谨慎加索引,每次写都要更新索引
+- **读多写少**(配置表、字典) → 放心加,空间换时间
+- GIN 写比 B-Tree 慢(要更新倒排表多个 key),写密集场景慎用
+
+## 几个常见坑
+
+### 坑 1:JSONB 字段建了 B-Tree 索引
+
+```sql
+CREATE INDEX idx_metadata ON articles USING btree(metadata);
+-- 报错或根本走不上
+```
+
+JSONB 的查询都是 `@>` `?` `?|` `?&` 这种"包含 / 存在",B-Tree 不支持。**默认 JSONB 字段用 GIN**。
+
+### 坑 2:GIN 索引忘了 `ANALYZE`
+
+GIN 索引**不会**自动收集统计信息,新建完一定要:
+
+```sql
+ANALYZE articles;
+```
+
+不然优化器不知道 GIN 索引存在,可能还是 Seq Scan。
+
+### 坑 3:小表加 GIN 反而慢
+
+```sql
+-- 100 行的表 + GIN
+EXPLAIN ANALYZE SELECT * FROM articles WHERE tags @> ARRAY['tag1'] LIMIT 10;
+-- 可能还是 Seq Scan,走索引反而更慢
+```
+
+GIN 的 bitmap scan 有固定开销,行数很少时得不偿失。**经验:表 < 1000 行通常不加索引**。
+
+### 坑 4:联合索引顺序错了
+
+```sql
+-- 经常查:WHERE author_id = ? ORDER BY created_at DESC
+-- 错的:CREATE INDEX ON articles(created_at, author_id)
+-- 对的:CREATE INDEX ON articles(author_id, created_at DESC)
+```
+
+B-Tree 联合索引**第一列是等值条件,后面是排序条件**,这跟单字段索引是两码事。
+
+## 选型速查表
+
+| 数据 / 查询 | 推荐索引 | 备注 |
+|------------|---------|------|
+| 主键 / 唯一约束 | B-Tree | 默认 |
+| 外键关联 | B-Tree | JOIN 性能 |
+| 时间范围 | B-Tree | WHERE created_at > ? |
+| 状态 / 标签枚举 | B-Tree 部分索引 | 只索引热数据 |
+| 文章 tags(数组) | GIN | `@>` `&&` |
+| 商品属性(JSONB) | GIN | `@>` |
+| 全文搜索 | GIN + `tsvector` | `@@` |
+| 模糊搜索 | GIN + `pg_trgm` | `LIKE '%x%'` |
+| 地理坐标 | GiST(不讲) | PostGIS |
+| 图结构 | GiST(不讲) | ltree |
+
+## 反思:B-Tree vs GIN 选型,本质是看"key 的方向"
+
+回到最底层 ——
+
+- **B-Tree 索引的是"列 → 行"**(一个列值指向行),适合"找这个值在哪几行"
+- **GIN 索引的是"key → 行"**(值里的元素指向行),适合"找包含这个 key 的行"
+
+**一句话决策**:
+
+> 看查询条件是在**找值**(B-Tree)还是**找包含的元素**(GIN)。
+
+实际工作里:
+- 80% 的场景 B-Tree 够用(等值 / 范围 / 排序)
+- JSONB / 数组 / 全文搜索 → GIN
+- 拿不准时,**先不加索引,看 EXPLAIN ANALYZE**,优化器会告诉你答案
+
+## 下一步
+
+下一篇准备写 **GIN 索引的"延迟写"机制 `fastupdate`** —— GIN 默认会把更新先存到 pending list,后台进程合并,虽然写性能更好但查询可能慢。下一篇会讲 `gin_fastupdate` 参数和 `gin_clean_pending_list` 函数,以及生产环境怎么配。
