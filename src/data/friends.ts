@@ -3,20 +3,25 @@ export interface Friend {
   url: string;
   avatar: string;
   desc: string;
+  group?: 'self' | 'friend';
 }
 
-// 想加更多直接往数组里追。头像建议用 .png / .webp,失败时组件会回退到首字母方块。
+// 想加更多直接往数组里追。
+// group: 'self'  → 突出显示在顶部(本站作者)
+//        'friend' → 进主网格
 export const friends: Friend[] = [
+  {
+    name: 'XiaoyouDong',
+    url: 'https://www.personalblog.website/',
+    avatar: 'https://avatars.githubusercontent.com/u/147724133?s=400&u=4f196cc46387a175540484f3c7f4b0d96c446895&v=4',
+    desc: '这里是 XiaoyouDong 的个人技术博客。 记录学习过程、踩过的坑、做过的项目。',
+    group: 'self',
+  },
   {
     name: 'JerryGao',
     url: 'https://jerrygao.cn/',
     avatar: 'https://jerrygao.cn/icons/icon-512.png',
     desc: '安全小白，初出茅庐。',
-  },
-  {
-    name: 'XiaoyouDong',
-    url: 'https://www.personalblog.website/',
-    avatar: '',
-    desc: '这里是 XiaoyouDong 的个人技术博客。 记录学习过程、踩过的坑、做过的项目。',
+    group: 'friend',
   },
 ];

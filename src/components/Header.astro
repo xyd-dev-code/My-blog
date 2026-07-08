@@ -13,12 +13,12 @@ const isActive = (href: string) => {
   <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
     <!-- Logo -->
     <a href="/" class="group flex items-center gap-2.5">
-      <span
-        class="inline-block h-7 w-7 rounded-full shadow-paper"
-        style="background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 60%, #0369a1 100%);"
-      >
-        <span class="block h-full w-full rounded-full" style="background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.6) 0%, transparent 50%);"></span>
-      </span>
+      <img
+        src={SITE.avatar}
+        alt={SITE.author}
+        class="h-7 w-7 rounded-full object-cover shadow-paper"
+        onerror="this.onerror=null;this.outerHTML='<span class=&quot;inline-block h-7 w-7 rounded-full shadow-paper&quot; style=&quot;background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 60%, #0369a1 100%);&quot;></span>'"
+      />
       <span
         class="font-display text-base font-semibold tracking-tight text-ink-900 group-hover:text-sky-700 transition-[color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
       >
