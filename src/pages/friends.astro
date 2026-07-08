@@ -30,7 +30,7 @@ const others = friends.filter((f) => f.group !== 'self');
         href={selfEntry.url}
         target="_blank"
         rel="noopener noreferrer"
-        class="mt-8 sm:mt-10 mx-auto block max-w-md paper-card p-4 flex items-start gap-3 bg-gradient-to-br from-sky-50 via-white to-leaf-50 border-sky-200 hover:-translate-y-0.5 hover:shadow-paper-md transition-[transform,box-shadow] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+        class="mt-8 sm:mt-10 mx-auto block max-w-sm paper-card p-4 flex items-start gap-3 bg-gradient-to-br from-sky-50 via-white to-leaf-50 border-sky-200 hover:-translate-y-0.5 hover:shadow-paper-md transition-[transform,box-shadow] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
       >
         {selfEntry.avatar ? (
           <img src={selfEntry.avatar} alt={selfEntry.name}
@@ -43,7 +43,6 @@ const others = friends.filter((f) => f.group !== 'self');
           </div>
         )}
         <div class="min-w-0 flex-1">
-          <div class="text-[11px] font-mono tracking-widest text-sky-600 uppercase">本站作者</div>
           <div class="mt-1 font-display text-base font-bold text-ink-900 truncate">{selfEntry.name}</div>
           <div class="text-[11px] font-mono text-ink-500 truncate">{selfEntry.url}</div>
           <div class="mt-1 text-xs text-ink-500 leading-relaxed line-clamp-2">{selfEntry.desc}</div>
@@ -124,13 +123,143 @@ const others = friends.filter((f) => f.group !== 'self');
         ))}
       </ul>
 
-      <a
-        href="mailto:x2597486661@gmail.com?subject=友链申请&body=你好,我想申请友链:%0A%0A站点名称:%0A站点链接:%0A站点描述:"
+      <button
+        type="button"
+        data-open-friend
         class="mt-7 inline-flex items-center gap-2 px-6 py-3 rounded-full paper-card border-cloud-200 bg-white text-sm font-medium text-ink-700 hover:-translate-y-0.5 hover:shadow-paper-md transition-[transform,box-shadow] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
       >
         填写申请信息
         <span aria-hidden="true">↓</span>
-      </a>
+      </button>
     </div>
   </section>
+
+  <dialog id="friend-dialog" class="friend-dialog paper-card max-w-md w-[92vw] p-6 sm:p-7">
+    <form id="friend-form" novalidate class="space-y-3 text-sm">
+      <header class="flex items-center justify-between">
+        <h2 class="font-display text-lg font-bold text-ink-900">申请友链</h2>
+        <button type="button" data-close-friend class="text-ink-400 hover:text-ink-700" aria-label="关闭">✕</button>
+      </header>
+      <label class="block">
+        <span class="text-ink-700">站点名称 <span class="text-sky-500">*</span></span>
+        <input name="name" required class="mt-1 w-full rounded-xl border border-cloud-200 px-3 py-2 focus:border-sky-400 focus:ring-2 focus:ring-sky-200 outline-none" />
+      </label>
+      <label class="block">
+        <span class="text-ink-700">站点地址 <span class="text-sky-500">*</span></span>
+        <input name="url" type="url" required placeholder="https://..." class="mt-1 w-full rounded-xl border border-cloud-200 px-3 py-2 focus:border-sky-400 focus:ring-2 focus:ring-sky-200 outline-none" />
+      </label>
+      <label class="block">
+        <span class="text-ink-500">头像链接 <span class="text-[10px] text-ink-400">(可选)</span></span>
+        <input name="avatar" placeholder="https://..." class="mt-1 w-full rounded-xl border border-cloud-200 px-3 py-2 focus:border-sky-400 focus:ring-2 focus:ring-sky-200 outline-none" />
+      </label>
+      <label class="block">
+        <span class="text-ink-500">联系邮箱 <span class="text-[10px] text-ink-400">(可选,用于回访)</span></span>
+        <input name="email" type="email" placeholder="hi@example.com" class="mt-1 w-full rounded-xl border border-cloud-200 px-3 py-2 focus:border-sky-400 focus:ring-2 focus:ring-sky-200 outline-none" />
+      </label>
+      <label class="block">
+        <span class="text-ink-700">一句话简介 <span class="text-sky-500">*</span></span>
+        <textarea name="desc" required rows="2" class="mt-1 w-full rounded-xl border border-cloud-200 px-3 py-2 focus:border-sky-400 focus:ring-2 focus:ring-sky-200 outline-none resize-none"></textarea>
+      </label>
+      <p data-friend-error class="hidden text-xs text-red-600"></p>
+      <div class="flex flex-col sm:flex-row gap-2 pt-2">
+        <button type="submit" class="flex-1 px-5 py-2.5 rounded-full bg-sky-500 text-white font-medium hover:bg-sky-600 transition-colors duration-[120ms]">
+          提交申请
+        </button>
+        <button type="button" data-copy-friend class="px-4 py-2.5 rounded-full border border-cloud-200 text-ink-700 hover:bg-cloud-50 transition-colors text-xs">
+          复制格式
+        </button>
+      </div>
+      <p class="text-[11px] text-ink-400">
+        没 GitHub 账号?<a href="mailto:x2597486661@gmail.com?subject=友链申请" class="text-sky-600 hover:underline">邮件申请</a>
+      </p>
+    </form>
+  </dialog>
+
+  <script is:inline>
+    (function () {
+      const dlg = document.getElementById('friend-dialog');
+      if (!dlg) return;
+      const form = document.getElementById('friend-form');
+      const errBox = dlg.querySelector('[data-friend-error]');
+      const REPO = 'xyd-dev-code/My-blog';
+      const LABELS = 'friend-apply';
+
+      const slugify = (s) => s.toLowerCase().trim()
+        .replace(/[^a-z0-9一-龥]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'friend';
+
+      const buildBody = (fd) => {
+        const name  = (fd.get('name')  || '').toString().trim();
+        const url   = (fd.get('url')   || '').toString().trim();
+        const av    = (fd.get('avatar')|| '').toString().trim();
+        const email = (fd.get('email') || '').toString().trim();
+        const desc  = (fd.get('desc')  || '').toString().trim();
+        return [
+          '## Frontmatter', '',
+          '```yaml',
+          `slug: ${slugify(name)}`,
+          `title: ${name}`,
+          `url: ${url}`,
+          `avatar: ${av || 'https://gravatar.com/avatar/?d=mp'}`,
+          `desc: ${desc}`,
+          `email: ${email}`,
+          `status: pending`,
+          '```',
+          '',
+          '## 申请信息', '',
+          `- 站点名称: ${name}`,
+          `- 站点地址: ${url}`,
+          `- 头像: ${av || '无'}`,
+          `- 联系邮箱: ${email || '无'}`,
+          `- 一句话简介: ${desc}`
+        ].join('\n');
+      };
+
+      const showErr = (msg) => { errBox.textContent = msg; errBox.classList.remove('hidden'); };
+      const clearErr = () => { errBox.textContent = ''; errBox.classList.add('hidden'); };
+
+      const opener = document.querySelector('[data-open-friend]');
+      const closer = dlg.querySelector('[data-close-friend]');
+      opener && opener.addEventListener('click', () => { clearErr(); dlg.showModal(); });
+      closer.addEventListener('click', () => dlg.close());
+      dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        clearErr();
+        const fd = new FormData(form);
+        const name  = (fd.get('name')  || '').toString().trim();
+        const url   = (fd.get('url')   || '').toString().trim();
+        const desc  = (fd.get('desc')  || '').toString().trim();
+        const av    = (fd.get('avatar')|| '').toString().trim();
+        const email = (fd.get('email') || '').toString().trim();
+        if (!name || !url || !desc) { showErr('站点名称、站点地址、一句话简介是必填项'); return; }
+        try { new URL(url); } catch { showErr('站点地址格式不正确,需要以 http(s):// 开头'); return; }
+        if (av) { try { new URL(av); } catch { showErr('头像链接格式不正确'); return; } }
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showErr('联系邮箱格式不正确'); return; }
+
+        const params = new URLSearchParams({
+          template: 'friend-apply.md',
+          title: `申请友链: ${name}`,
+          body: buildBody(fd),
+          labels: LABELS,
+        });
+        window.open(`https://github.com/${REPO}/issues/new?${params}`, '_blank', 'noopener');
+        dlg.close();
+        form.reset();
+      });
+
+      const copyBtn = dlg.querySelector('[data-copy-friend]');
+      copyBtn.addEventListener('click', async (ev) => {
+        const fd = new FormData(form);
+        try {
+          await navigator.clipboard.writeText(buildBody(fd));
+          const btn = ev.currentTarget;
+          const orig = btn.textContent;
+          btn.textContent = '已复制 ✓';
+          setTimeout(() => { btn.textContent = orig; }, 1600);
+        } catch {}
+      });
+    })();
+  </script>
 </BaseLayout>
