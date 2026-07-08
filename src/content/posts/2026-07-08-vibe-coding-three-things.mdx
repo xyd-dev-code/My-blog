@@ -1,0 +1,299 @@
+---
+title: "Vibe coding 实战手册:Claude Code 三件套"
+description: "AI 写代码不是 ChatGPT 出代码片段就完事。这篇用本博客(改友链页 / 留言页 / 头像统一) + 修 GitHub Actions(MDX 注释挂掉 build) + 写技术文(B-Tree vs GIN、读懂 EXPLAIN)三个真实场景,讲清楚 Claude Code 在本地 CLI 里能怎么用、什么时候该用、什么时候会翻车。"
+cover: "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=800&h=420&fit=crop&auto=format&q=75"
+pubDate: 2026-07-08
+category: "工具流"
+tags: ["vibe coding", "Claude Code", "AI", "工具流", "workflow"]
+---
+
+## 起因
+
+"vibe coding" 这个词从 2025 年初火到现在,各家 IDE 都接了 AI 助手(Claude Code / Cursor / Cline / Copilot)。
+
+我一开始也以为就是"ChatGPT 出代码片段,我复制粘贴"。
+
+但真用 Claude Code 干了一周活(改本博客、加新页面、修部署、跨上下文写技术文),发现它真正有用的不是"出代码",而是**三件套** ——
+
+1. **terminal 里直接起 / 改项目**(不是问 ChatGPT 然后复制)
+2. **修 GitHub Actions / CI 失败**(把日志粘过去,它能定位到具体文件和行)
+3. **跨上下文协作**(写技术文时让它查我仓库里的其他文件做引证)
+
+这篇把今天 7/3 ~ 7/8 这一周我用 Claude Code 做过的三件事拆开讲,每件都带**真实场景 + 实际命令 + 我踩的坑**。
+
+## 件套一:terminal 里直接改项目
+
+### 场景:加友链页 + 留言页 + 统一头像
+
+这周末给本博客加新功能:
+
+- 友链页 `/friends`(Jerry 风格)
+- 留言页 `/guestbook`(giscus 评论区)
+- Header / 文章侧栏 / 友链本人卡片三处统一用我的 GitHub 头像
+
+按以前的工作流,我会:
+
+1. 写一个 `friends.astro`,自己撸 CSS
+2. 写 `guestbook.astro`,配 giscus
+3. 改 `Header.astro`、`posts/[...page].astro`、`data/friends.ts` 三处地方插头像
+4. 各种 `pnpm build` 调试
+
+Vibe coding 流是这样的:
+
+```bash
+# 在项目根目录,起 Claude Code
+claude
+
+# 1) 起手:让 AI 自己读仓库结构
+> 看一下 src/ 目录结构、当前 nav 怎么定义的、Header.astro 长什么样
+
+# 2) 一次性下指令
+> 加一个 /friends 页,布局参考 jerrygao.cn/friends(用 puppeteer 拉一下参考)
+> 字段:friends.ts 数组,每项 name / url / avatar / desc
+> 站主自己放在最上面突出显示
+> 卡片右下角加编号
+
+# 3) 同样的方式做 /guestbook
+> 加一个 /guestbook,布局跟 jerrygao.cn/guestbook 一致
+> 评论系统用 giscus,占位 REPO_ID / CATEGORY_ID 走 fallback 卡片
+
+# 4) 改 Header / 侧栏 / 自卡三处统一头像
+> src/consts.ts 加 SITE.avatar,然后三处都用它
+```
+
+**Claude Code 实际做的事**:
+
+- 跑 `ls` / `cat` 自己摸仓库结构
+- 跑 `puppeteer + Edge` 拉 jerrygao.cn 的真实 DOM(因为 WebFetch 工具对那个站 robots.txt 拒了,得换浏览器 UA)
+- 写 `friends.astro` / `guestbook.astro` / 改 `Header.astro` / 改 `posts/[...page].astro` / 改 `consts.ts`
+- 跑 `pnpm build` 验证编译过没
+- 出错就自己看 error log 定位修复
+
+**我做的**:在它跑的时候看输出,有问题就插嘴改方向,大部分时间是它自己在 IDE 里写文件 + 跑 build + 看结果。
+
+### 为什么比 ChatGPT 复制粘贴强
+
+| ChatGPT 流 | Claude Code 流 |
+|----------|---------------|
+| 给一段提示词,出一段代码 | 给一段指令,**它在你的真实项目里**改 |
+| 我手动复制到项目里 | 它直接 `Edit` / `Write` 工具写文件 |
+| 出错我自己看 stacktrace | 它自己跑 `pnpm build`,看 error,自己改 |
+| 不懂我的项目约定 | 它能先 `cat` 一遍我的项目,读懂风格再写 |
+| 一次性 | **持久上下文**:session 一直开着,后面改就基于前面的对话 |
+
+**最大差异**:Claude Code 跑在**你的真实项目里**,而 ChatGPT 跑在它自己的虚空里。**前者有反馈回路,后者没有。**
+
+### 这件套什么时候用 / 不用
+
+**用**:
+- 新加功能 / 页面(从 0 到 1)
+- 重构(改架构、改命名、拆文件)
+- 改一堆文件要保持一致(头像三处统一)
+- 想看真实运行结果(它会跑 build)
+
+**不用**:
+- 单纯查语法 / API 用法(直接 F1 查 IDE 文档)
+- 改一行 typo(自己改比跟 AI 描述快)
+- 写不能跑的东西(它会卡在"没法验证")
+
+## 件套二:修 CI / GitHub Actions 失败
+
+### 场景:Deploy to GitHub Pages 连续 3 次失败
+
+昨天 merge PR 之后,5 天没人管的部署失败了:
+
+```
+Deploy to GitHub Pages #39  — failed
+Deploy to GitHub Pages #38  — failed
+Deploy to GitHub Pages #37  — failed
+```
+
+我去看 Settings → Pages 写着"Last deployed 5 days ago",实际访问站点也变 5 天前版本了。
+
+### 过去的工作流(慢)
+
+1. 点进 Actions → 点 #39 → 看 log
+2. 复制失败 log → 打开 Google 搜 / ChatGPT 问
+3. 怀疑 A,改 A,推上去,等 30s 跑完,失败
+4. 怀疑 B,改 B,推上去,等 30s,失败
+5. ...
+
+5 次循环可能就 30 分钟过去了。
+
+### Vibe coding 流(快)
+
+```bash
+# 1) 本地复现 — 跟 CI 一样跑
+pnpm build
+
+# 2) 看 build error
+[@mdx-js/rollup] Unexpected character `!` (U+0021) before name
+file: src/content/posts/pg-index-btree-vs-gin.mdx:19:2
+```
+
+**Claude Code 1 轮就定位了**——mdx 文件流里裸写 `<!-- -->` 注释,MDX 解析器直接报错。
+
+修:
+
+```diff
+-<!-- 本 PR 合并后,workflow 会把 Issue #1 标记为 topic-published -->
++{/* 本 PR 合并后,workflow 会把 Issue #1 标记为 topic-published */}
+```
+
+一行改动,本地 build 通过 → commit → push → CI 跑通。
+
+**总耗时:从发现问题到 push 完修复 = 大概 10 分钟**(包含我读 log 跟它对答案)。
+
+### 件套二的核心心法
+
+**AI 修 CI 最大的优势是"反馈循环短"**——CI 失败 = 一段 log,本地 build = 一段 log,内容相近。AI 看 log → 改代码 → 跑 build → 看 log,**3 步就定位了**。
+
+但**坑也要注意**:
+
+1. **CI 失败未必是代码问题**——可能是 `pnpm-lock.yaml` 不一致,可能是 GCM 凭据过期,可能是 runner 抽风。AI 会"假定是代码问题",有时代码没问题,得引导它看"环境层面"
+2. **commit message 要写清楚修复了什么**——CI 改一行,commit message 写三段,后面回看才能记得起
+3. **永远本地 build 一次再 push**——别直接信 AI 说"我改好了",自己 `pnpm build` 跑一遍确认
+
+### 这件套什么时候用
+
+**用**:
+- 编译 / 部署失败
+- Lint / Type 报错
+- 单元测试 fail,要 trace 到根因
+- 性能问题要 profile
+
+**不用**:
+- 业务逻辑 bug(改完你得自己测业务,AI 不懂业务)
+
+## 件套三:跨上下文写技术文
+
+### 场景:写"B-Tree vs GIN"和"读懂 EXPLAIN"两篇
+
+前两天发了两篇 PostgreSQL 索引文:
+
+- `PostgreSQL 索引怎么选:B-Tree 还是 GIN?`
+- `读懂 EXPLAIN:从 Seq Scan 到 Index Only Scan,看 PostgreSQL 优化器怎么想`
+
+我**不是用 AI 直接生成**——是 AI 帮我做**三件事**:
+
+1. **查仓库里相关上下文**:我之前写过 `2024-11-13-mysql-btree-visualization.mdx`,AI 能读它,知道我已经用过哪些图、什么写作风格
+2. **对比兄弟文章找规律**:AI 看 `2025-04-26-mysql-index-experiment.mdx` 怎么写实验、怎么排表格,新文就照这个骨架来
+3. **填具体内容**:B-Tree/GIN 的具体场景、PostgreSQL 的 EXPLAIN 输出怎么解读,**这些是我自己写的**——AI 不替我写观点
+
+### 实际工作流
+
+```bash
+# 1) 起手 — 让 AI 调研我仓库的风格
+> 看下 src/content/posts/ 里所有数据库/SQL 主题的文章,
+> 总结一下:frontmatter 有哪些字段、cover 怎么选、
+> 正文结构通常是 起因 / 实验 / 反思 / 下一步,
+> 用什么 Unsplash 图(我看你给我列出来)
+
+# 2) 跟 AI 头脑风暴大纲
+> B-Tree vs GIN 怎么写大纲?
+> 我想覆盖:底层结构、真实实验(数组/JSONB/等值 3 个)、
+> 决策流程、4 个常见坑、速查表
+> 全文大概 3000 字
+
+# 3) AI 写大纲,我审
+# 4) 我写正文骨架,AI 补"真实实验"里的 SQL / EXPLAIN 输出
+# 5) AI 帮做 commit message
+```
+
+**AI 写的**:SQL 实验代码(我口述大致方向,AI 补具体 SQL)、EXPLAIN 输出格式、commit message
+
+**我写的**:话题切入("我之前给 PostgreSQL 加索引默认 B-Tree")、反思("Seq Scan 不一定是错的")、坑("GIN 加完忘 ANALYZE")、下一步("下一篇写 GIN fastupdate")
+
+### 跟"AI 直接生成文"完全不一样
+
+```bash
+# ❌ 错误用法
+> 帮我写一篇"B-Tree vs GIN"的文章,3000 字,带例子
+
+# 出来的:正确的废话,没我个人的"我做过 X 实验"那种手感
+```
+
+```bash
+# ✅ 正确用法
+> 我要写一篇 B-Tree vs GIN,主题已经定了,
+> 帮我列一下:跟仓库里现有几篇"数据库"主题文章相比,
+> 我能挖哪些"我做过"的真实场景(最好是仓库里能查到的)?
+```
+
+**区别**:
+- 错误用法 = 把 AI 当"代笔"
+- 正确用法 = 把 AI 当"调研员 / 编辑 / 数据填充"
+
+后者产出的是**你的文章,AI 帮你打磨**;
+前者产出的是**AI 的文章,你贴了名字**。
+
+### 这件套什么时候用
+
+**用**:
+- 写技术博客,要查仓库里的关联文 / 引用图
+- 写项目文档、README,要知道"项目里实际有什么"
+- 写周报 / 总结,要从 git log / 实际产出里抽数据
+- 跨文件、跨周的"调研 + 整理"
+
+**不用**:
+- 写观点 / 主观评论(AI 没法替你思考)
+- 写**全新**东西(它不知道你脑子里没说的)
+
+## 三件套的共同心法
+
+### 1. AI 是协作者,不是代工
+
+| 工种 | 适合让 AI 做 | 必须自己做的 |
+|------|------------|------------|
+| 写代码 | 模板代码、重复模式、跨文件改动 | 业务逻辑、命名、架构决策 |
+| 修 CI | 看 log 定位、改 typo、查 API 文档 | 确认改对了、复现、commit message |
+| 写技术文 | 调研、补具体数据 / SQL、润色 | 选话题、写"我做过"的部分 |
+
+### 2. 反馈循环要短
+
+AI 最擅长的不是"想出答案",是**3 步闭环**:
+- 看现状(`cat` / `pnpm build` / 读 file)
+- 改一点(Edit)
+- 再看现状(再跑一遍)
+
+凡是有"反馈"的活,AI 都能干得快。
+凡是"一次定终生"的活(架构决策、设计稿),AI 只是辅助。
+
+### 3. commit message + memory 是你和未来的你的桥
+
+AI 写的 commit message 比人写的好(它会写"为什么"而不只是"改了什么")。
+memory 文件(我项目根的 `MEMORY.md`)是给**下次的 AI** 留的 — 哪些坑踩过、哪些约定必须守。
+
+**AI 写完一段活儿,不要就让它走了** — 让它把"踩过什么坑 / 学到什么 / 下次要注意什么"写进 memory,下次接手的 AI 不用重新踩。
+
+### 4. 人保留"否决权"
+
+AI 出 5 个方案,可能 4 个看着都对 — 但**你的项目**、**你的用户**、**你的代码库约束**,只有你知道哪个对。
+
+它改了一行,你觉得"这不对",**直接说不**,不要客气。
+
+## 我用 Claude Code 踩过的坑(供后人参考)
+
+1. **WebFetch 会被 robots.txt 挡** — 我让 AI 拉 jerrygao.cn 的页面参考,它 WebFetch 失败。**用 puppeteer + 浏览器 UA 绕过**。
+2. **`<!-- -->` 写在 mdx 文件流里挂 build** — 注释必须用 `{/* */}`。**存进 memory 后,下次自动避开**。
+3. **GCM 凭据在 Git Bash 里 push 会卡** — 凭据走 PowerShell 推。**这已经写进项目 memory 了**。
+4. **gh CLI 在本机 443 被拦** — `gh` API 调不动,得手动用 web UI。
+5. **AI 写的 commit message 不能直接 push** — 一定自己读一遍,它有时候把"PR 模板"当 commit message 写,巨长。
+6. **AI 不知道你的"个人红线"** — 我有个反馈:博客正文不准出现"亚信/亚信科技"。**写进 memory + feedback 类型**,下次 AI 自动避开。
+
+## 反思:Vibe coding 改变了什么
+
+用了 Claude Code 一个月,我**实际的产出速度提升了大概 3 倍**。但**学到的"代码量"少了 50%** — 因为很多模板代码、跨文件改动让 AI 包了,我自己只写关键逻辑和决策。
+
+这是个**取舍**:
+
+- 写模板代码 → **省时,但学得少**
+- 自己撸所有代码 → **耗时长,但深刻**
+
+我的策略是**平衡**:核心代码自己写(学到东西),周边代码 AI 写(省时间)。这样不沦为"AI 操作员",也保持效率。
+
+另一个变化是**debug 心态**:看到 fail 不再焦虑,因为"3 步闭环"几乎一定能定位。心态稳了,反而写得更耐心。
+
+## 下一步
+
+下一篇准备写 **Claude Code 的 5 个隐藏能力** — Skills / Subagents / Plan Mode / Hooks / Memory。每一个都能让 AI 干更细的活儿,但用得不好会变成"给 AI 套了 5 套紧箍咒"。下一篇会讲什么时候用、什么时候别用。
