@@ -2,7 +2,7 @@
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import { getCollection } from 'astro:content';
 import { formatDateShort } from '~/utils/date';
-import { POSTS_PER_PAGE, STOP_TAGS, filterTags } from '~/consts';
+import { POSTS_PER_PAGE, STOP_TAGS, filterTags, SITE } from '~/consts';
 
 export async function getStaticPaths() {
   const all = (await getCollection('posts', ({ data }) => !data.draft))
@@ -137,9 +137,14 @@ const earliest = all[all.length - 1]?.data.pubDate;
       <aside class="hidden lg:flex flex-col space-y-5 lg:[padding-top:var(--posts-header-h,0px)]" data-sidebar>
         <div class="paper-card p-5">
           <div class="flex items-center gap-3">
-            <div class="w-12 h-12 rounded-full bg-gradient-to-br from-sky-300 to-sky-500 ring-2 ring-white shadow-sm shrink-0"></div>
+            <img
+              src={SITE.avatar}
+              alt={SITE.author}
+              class="w-12 h-12 rounded-full object-cover ring-2 ring-white shadow-sm shrink-0"
+              onerror="this.onerror=null;this.outerHTML='<div class=&quot;w-12 h-12 rounded-full bg-gradient-to-br from-sky-300 to-sky-500 ring-2 ring-white shadow-sm shrink-0&quot;></div>'"
+            />
             <div class="min-w-0">
-              <p class="font-display font-semibold text-ink-900 leading-tight">XiaoyouDong</p>
+              <p class="font-display font-semibold text-ink-900 leading-tight">{SITE.author}</p>
               <p class="text-xs text-ink-500 mt-0.5">学习笔记 · 项目复盘 · 工具流</p>
             </div>
           </div>

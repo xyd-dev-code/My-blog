@@ -5,6 +5,7 @@ export const SITE = {
   description:
     '一个晴空主题的个人技术博客——记录学习、踩坑与项目复盘。',
   author: 'XiaoyouDong',
+  avatar: 'https://avatars.githubusercontent.com/u/147724133?s=400&u=4f196cc46387a175540484f3c7f4b0d96c446895&v=4',
   lang: 'zh-CN',
   github: 'https://github.com/xyd-dev-code',
   repo: 'https://github.com/xyd-dev-code/My-blog',
