@@ -56,6 +56,87 @@ const email = 'x2597486661@gmail.com';
         </div>
       </dl>
 
+      <!-- 站点简介 -->
+      <div class="mt-8 pt-6 border-t border-cloud-200">
+        <p class="font-mono text-xs uppercase tracking-widest text-sky-700 mb-3">
+          // about.site
+        </p>
+        <div class="font-serif text-[15px] leading-7 text-ink-700 space-y-3">
+          <p>
+            这个站是我用来沉淀<strong class="font-semibold text-ink-900">学习笔记、项目复盘和工具流</strong>的小角落。
+            写代码的事写得最多,观点和评论写得少 — 跟我在 GitHub 上做的事情差不多,只是更愿意把"为什么这么写"也写出来。
+          </p>
+          <p>
+            站内分四类内容:技术文章 <a href="/posts" class="text-sky-700 hover:text-sky-600 transition-[color] duration-[120ms]">/posts</a>、
+            项目记录 <a href="/projects" class="text-sky-700 hover:text-sky-600 transition-[color] duration-[120ms]">/projects</a>、
+            友链 <a href="/friends" class="text-sky-700 hover:text-sky-600 transition-[color] duration-[120ms]">/friends</a>、
+            留言 <a href="/guestbook" class="text-sky-700 hover:text-sky-600 transition-[color] duration-[120ms]">/guestbook</a>。
+            友链和留言板都是最近才加的,欢迎常来。
+          </p>
+          <p>
+            写文章不追热点,写的是<strong class="font-semibold text-ink-900">真用过的、踩过坑的</strong>。
+            如果一篇文章没给你带来新信息,那是我没写到位,不是你的问题。
+          </p>
+        </div>
+      </div>
+
+      <!-- 技术栈 -->
+      <div class="mt-8 pt-6 border-t border-cloud-200">
+        <p class="font-mono text-xs uppercase tracking-widest text-sky-700 mb-3">
+          // tech.stack
+        </p>
+        <div class="space-y-3 font-mono text-sm">
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="text-ink-400 select-none w-24 shrink-0">backend</span>
+            <span class="flex flex-wrap gap-1.5">
+              {['Java', 'Spring Boot', 'MyBatis', 'JDBC', 'JUnit', 'JWT', 'AOP', 'Maven'].map((t) => (
+                <span class="inline-block px-2 py-0.5 rounded-full bg-sky-50 border border-sky-200 text-[12px] text-sky-700">{t}</span>
+              ))}
+            </span>
+          </div>
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="text-ink-400 select-none w-24 shrink-0">database</span>
+            <span class="flex flex-wrap gap-1.5">
+              {['MySQL', 'PostgreSQL', 'Redis'].map((t) => (
+                <span class="inline-block px-2 py-0.5 rounded-full bg-sky-50 border border-sky-200 text-[12px] text-sky-700">{t}</span>
+              ))}
+            </span>
+          </div>
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="text-ink-400 select-none w-24 shrink-0">frontend</span>
+            <span class="flex flex-wrap gap-1.5">
+              {['Vue', 'TypeScript', 'Tailwind'].map((t) => (
+                <span class="inline-block px-2 py-0.5 rounded-full bg-sky-50 border border-sky-200 text-[12px] text-sky-700">{t}</span>
+              ))}
+            </span>
+          </div>
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="text-ink-400 select-none w-24 shrink-0">devops</span>
+            <span class="flex flex-wrap gap-1.5">
+              {['Linux', 'Git', 'Docker'].map((t) => (
+                <span class="inline-block px-2 py-0.5 rounded-full bg-sky-50 border border-sky-200 text-[12px] text-sky-700">{t}</span>
+              ))}
+            </span>
+          </div>
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="text-ink-400 select-none w-24 shrink-0">lang</span>
+            <span class="flex flex-wrap gap-1.5">
+              {['C++', 'SQL'].map((t) => (
+                <span class="inline-block px-2 py-0.5 rounded-full bg-sky-50 border border-sky-200 text-[12px] text-sky-700">{t}</span>
+              ))}
+            </span>
+          </div>
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="text-ink-400 select-none w-24 shrink-0">this-site</span>
+            <span class="flex flex-wrap gap-1.5">
+              {['Astro', 'Pagefind'].map((t) => (
+                <span class="inline-block px-2 py-0.5 rounded-full bg-leaf-50 border border-leaf-200 text-[12px] text-leaf-700">{t}</span>
+              ))}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <!-- 卡内末尾联系方式，不另起 card -->
       <div class="mt-8 pt-6 border-t border-cloud-200 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
         <a
