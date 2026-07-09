@@ -14,12 +14,12 @@
     if (!isFinePointer || !isWide || prefersReduced) return;
 
     const TILT = 5;
-    const items = Array.from(document.querySelectorAll<HTMLElement>('[data-tilt]'));
+    const items = Array.from(document.querySelectorAll('[data-tilt]'));
     if (items.length === 0) return;
 
-    let active: HTMLElement | null = null;
+    let active = null;
 
-    function onMove(e: MouseEvent) {
+    function onMove(e) {
       if (!active) return;
       const r = active.getBoundingClientRect();
       const x = ((e.clientX - r.left) / r.width) * 100;
@@ -31,7 +31,7 @@
       active.style.setProperty('--rx', `${rx.toFixed(2)}deg`);
       active.style.setProperty('--ry', `${ry.toFixed(2)}deg`);
     }
-    function onEnter(this: HTMLElement) {
+    function onEnter() {
       active = this;
     }
     function onLeave() {
