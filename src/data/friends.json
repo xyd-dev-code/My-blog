@@ -12,5 +12,13 @@
     "avatar": "https://jerrygao.cn/icons/icon-512.png",
     "desc": "安全小白，初出茅庐。",
     "group": "friend"
+  },
+  {
+    "name": "Qianji Xiao",
+    "url": "http://blog.qianji.online",
+    "avatar": "https://gravatar.com/avatar/?d=mp",
+    "desc": "Qianji Xiao 的个人博客。",
+    "group": "friend",
+    "status": "approved"
   }
 ]
