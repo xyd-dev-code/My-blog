@@ -1,7 +1,9 @@
 ---
 import BaseLayout from '~/layouts/BaseLayout.astro';
-import { friends } from '~/data/friends';
+import type { Friend } from '~/types/friend';
+import friendsData from '~/data/friends.json';
 
+const friends = friendsData as Friend[];
 const selfEntry = friends.find((f) => f.group === 'self');
 const others = friends.filter((f) => f.group !== 'self');
 ---

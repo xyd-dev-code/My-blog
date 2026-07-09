@@ -1,0 +1,16 @@
+[
+  {
+    "name": "XiaoyouDong",
+    "url": "https://www.personalblog.website/",
+    "avatar": "https://avatars.githubusercontent.com/u/147724133?s=400&u=4f196cc46387a175540484f3c7f4b0d96c446895&v=4",
+    "desc": "这里是 XiaoyouDong 的个人技术博客。 记录学习过程、踩过的坑、做过的项目。",
+    "group": "self"
+  },
+  {
+    "name": "JerryGao",
+    "url": "https://jerrygao.cn/",
+    "avatar": "https://jerrygao.cn/icons/icon-512.png",
+    "desc": "安全小白，初出茅庐。",
+    "group": "friend"
+  }
+]

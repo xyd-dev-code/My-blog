@@ -34,3 +34,21 @@ collections:
       - { label: "封面图", name: "cover", widget: "image", required: false, allow_multiple: false }
       - { label: "草稿", name: "draft", widget: "boolean", default: false, required: false }
       - { label: "正文", name: "body", widget: "markdown" }
+
+  - name: "friends"
+    label: "友情链接"
+    description: "/friends 页面卡片数据。新申请由 GitHub Issue 收集,通过本面板合并。"
+    files:
+      - name: "friends"
+        label: "Friends 列表"
+        file: "src/data/friends.json"
+        format: "json"
+        create: false
+        delete: false
+        fields:
+          - { label: "站点名称", name: "name", widget: "string" }
+          - { label: "站点地址", name: "url", widget: "string" }
+          - { label: "头像链接", name: "avatar", widget: "string" }
+          - { label: "一句话简介", name: "desc", widget: "text" }
+          - { label: "分组", name: "group", widget: "select", options: ["self", "friend"], required: false, default: "friend" }
+          - { label: "状态", name: "status", widget: "select", options: ["approved", "pending"], required: false, hint: "pending 仅作审计元数据,不影响渲染" }
