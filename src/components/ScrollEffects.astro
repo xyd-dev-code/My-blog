@@ -1,0 +1,137 @@
+---
+/**
+ * 滚动效果:
+ * 1) 顶部 2px 滚动进度条 — 跟随 scrollY 计算比例
+ * 2) 视口入场 stagger 渐入 — 自动覆盖 hero 段落 / 卡片 / 标题
+ *
+ * 行为约束:
+ * - prefers-reduced-motion: reduce 由 global.css 的全局 catch-all 自动兜底
+ * - 进度条/渐入 全设备启用,移动端无差异化
+ * - 路由切换后通过 astro:page-load 重算
+ */
+---
+
+<!-- 1) 滚动进度条 -->
+<div id="__scroll-progress" aria-hidden="true"></div>
+
+<!-- 2) 视口入场渐入 — 纯 CSS,无 JS 依赖 -->
+<div class="scroll-fade-observer" aria-hidden="true"></div>
+
+<script is:inline>
+  (() => {
+    // ===== 滚动进度条 =====
+    const bar = document.getElementById('__scroll-progress');
+    if (bar) {
+      let ticking = false;
+      function update() {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        const p = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+        bar.style.setProperty('--p', p.toFixed(4));
+        ticking = false;
+      }
+      function onScroll() {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+      window.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('resize', onScroll, { passive: true });
+      document.addEventListener('astro:page-load', () => {
+        requestAnimationFrame(update);
+      });
+      update();
+    }
+
+    // ===== 视口入场 stagger 渐入 =====
+    // 给目标元素加 .scroll-fade,IntersectionObserver 进入视口时加 .is-in。
+    // 初始默认 opacity:1(无 JS 也能看);JS 加载时统一加 .scroll-fade,
+    // 元素被 is-in 命中后才显形 → 不会出现"先看到再消失"。
+    const selector = [
+      '.scroll-fade',
+      'main h1',
+      'main > section > div h1',
+      'main .paper-card',
+      'main section > div > p',
+    ].join(', ');
+
+    function arm() {
+      const targets = document.querySelectorAll(selector);
+      if (targets.length === 0 || !('IntersectionObserver' in window)) return;
+      targets.forEach((el) => {
+        if (el.classList.contains('scroll-fade')) return;
+        el.classList.add('scroll-fade');
+      });
+      const io = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('is-in');
+              entry.target.classList.remove('is-pending');
+              io.unobserve(entry.target);
+            }
+          });
+        },
+        { rootMargin: '0px 0px -8% 0px', threshold: 0.05 }
+      );
+      targets.forEach((el) => {
+        if (el.classList.contains('is-in')) return;
+        const r = el.getBoundingClientRect();
+        const inView = r.top < window.innerHeight * 0.92 && r.bottom > 0;
+        if (inView) {
+          el.classList.add('is-in');
+        } else {
+          el.classList.add('is-pending');
+          io.observe(el);
+        }
+      });
+    }
+
+    arm();
+    document.addEventListener('astro:page-load', arm);
+  })();
+</script>
+
+<style is:global>
+  /* ===== 进度条 ===== */
+  #__scroll-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 2px;
+    z-index: 9998;
+    pointer-events: none;
+    background: linear-gradient(90deg, var(--sky-300), var(--sky-500));
+    transform-origin: left;
+    transform: scaleX(var(--p, 0));
+    transition: transform 0.1s linear;
+    will-change: transform;
+  }
+
+  /* ===== 渐入 =====
+   * 默认无样式 — 无 JS 时内容正常显示。
+   * JS 加载时给所有 .scroll-fade 加 .is-pending(视口外元素 opacity:0 隐藏);
+   * IO 进入视口时移除 .is-pending 并加 .is-in(触发动画)。
+   */
+  .scroll-fade {
+    /* 默认无样式 */
+  }
+  .scroll-fade.is-pending {
+    opacity: 0;
+  }
+  .scroll-fade.is-in {
+    animation: scroll-fade-in 0.5s var(--ease-out-quint) both;
+  }
+  .scroll-fade.is-in:nth-child(1) { animation-delay: 0ms; }
+  .scroll-fade.is-in:nth-child(2) { animation-delay: 60ms; }
+  .scroll-fade.is-in:nth-child(3) { animation-delay: 120ms; }
+  .scroll-fade.is-in:nth-child(4) { animation-delay: 180ms; }
+  .scroll-fade.is-in:nth-child(n + 5) { animation-delay: 0ms; }
+
+  /* 只动 opacity,避免和 CardCursor 的 [data-tilt] transform 冲突 */
+  @keyframes scroll-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+</style>
