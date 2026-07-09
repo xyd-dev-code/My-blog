@@ -2,41 +2,13 @@
 import BaseLayout from '~/layouts/BaseLayout.astro';
 import { getCollection } from 'astro:content';
 import { formatDateShort } from '~/utils/date';
-import { POSTS_PER_PAGE, STOP_TAGS, filterTags, SITE } from '~/consts';
-
-export async function getStaticPaths() {
-  const all = (await getCollection('posts', ({ data }) => !data.draft))
-    .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
-  const totalPages = Math.max(1, Math.ceil(all.length / POSTS_PER_PAGE));
-  return Array.from({ length: totalPages }, (_, i) => ({
-    params: { page: i === 0 ? undefined : String(i + 1) },
-  }));
-}
+import { STOP_TAGS, filterTags, SITE } from '~/consts';
 
 // 构建时始终按 desc 排序（最新优先）。切换到 asc 由客户端脚本处理。
 const all = (await getCollection('posts', ({ data }) => !data.draft))
   .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
 
-const totalPages = Math.max(1, Math.ceil(all.length / POSTS_PER_PAGE));
-const rawPage = Astro.params.page;
-const currentPage = rawPage === undefined ? 1 : Math.min(Math.max(1, Number(rawPage)), totalPages);
-const posts = all.slice((currentPage - 1) * POSTS_PER_PAGE, currentPage * POSTS_PER_PAGE);
-
-const pageHref = (n: number) => (n === 1 ? '/posts' : `/posts/${n}`);
-
-// 生成分页页码数组
-function getPageNumbers(current: number, total: number): (number | '...')[] {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const pages: (number | '...')[] = [];
-  pages.push(1);
-  if (current > 3) pages.push('...');
-  const start = Math.max(2, current - 1);
-  const end = Math.min(total - 1, current + 1);
-  for (let i = start; i <= end; i++) pages.push(i);
-  if (current < total - 2) pages.push('...');
-  pages.push(total);
-  return pages;
-}
+const posts = all;
 
 // 侧栏即时搜索索引 + 跨页排序所需的全量元数据
 const searchIndex = all.map((p) => ({
@@ -131,7 +103,7 @@ const earliest = all[all.length - 1]?.data.pubDate;
 ---
 <BaseLayout title="Posts" description="所有文章 — 学习笔记、项目复盘、工具流。">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-    <div class="grid grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)_16rem] lg:grid-rows-[minmax(0,1fr)_auto] gap-6 lg:gap-8 items-stretch">
+    <div class="grid grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)_16rem] gap-6 lg:gap-8 items-stretch">
 
       <!-- 左 sidebar -->
       <aside class="hidden lg:flex flex-col space-y-5 lg:[padding-top:var(--posts-header-h,0px)]" data-sidebar>
@@ -148,7 +120,7 @@ const earliest = all[all.length - 1]?.data.pubDate;
               <p class="text-xs text-ink-500 mt-0.5">学习笔记 · 项目复盘 · 工具流</p>
             </div>
           </div>
-          <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+          <div class="mt-4 grid grid-cols-2 gap-2 text-center">
             <div>
               <p class="font-display text-lg font-semibold text-ink-900 tabular-nums">{all.length}</p>
               <p class="text-[11px] text-ink-500">文章</p>
@@ -156,10 +128,6 @@ const earliest = all[all.length - 1]?.data.pubDate;
             <div>
               <p class="font-display text-lg font-semibold text-ink-900 tabular-nums">{tags.length}</p>
               <p class="text-[11px] text-ink-500">标签</p>
-            </div>
-            <div>
-              <p class="font-display text-lg font-semibold text-ink-900 tabular-nums">{totalPages}</p>
-              <p class="text-[11px] text-ink-500">页</p>
             </div>
           </div>
           <p class="mt-4 text-xs text-ink-400 font-serif italic">慢慢写，持续复盘。</p>
@@ -220,9 +188,7 @@ const earliest = all[all.length - 1]?.data.pubDate;
             学习笔记、项目复盘、工具流。点进任意卡片看完整内容。
           </p>
           <p class="mt-1.5 text-xs text-ink-400">
-            <span class="text-leaf-500">●</span> {all.length} article{all.length === 1 ? '' : 's'} found
-            <span class="mx-1.5 text-ink-300">·</span>
-            <span class="font-mono tabular-nums"><span data-posts-current-page>{currentPage}</span> / {totalPages}</span>
+            共 <span class="font-mono tabular-nums text-sky-600">{all.length}</span> 篇,按发布顺序倒序排列
           </p>
           <!-- 排序切换（客户端重排） -->
           <div
@@ -269,7 +235,7 @@ const earliest = all[all.length - 1]?.data.pubDate;
         {posts.length === 0 ? (
           <p class="text-ink-500 text-center py-12">暂无文章。</p>
         ) : (
-          <ul class="space-y-4" data-posts-list data-per-page={POSTS_PER_PAGE}>
+          <ul class="space-y-4" data-posts-list>
             {posts.map((post) => (
               <li data-pubdate={post.data.pubDate.toISOString()}>
                 <a
@@ -395,40 +361,6 @@ const earliest = all[all.length - 1]?.data.pubDate;
         </div>
       </aside>
 
-      {totalPages > 1 && (
-        <nav
-          class="lg:col-start-2 lg:row-start-2 flex items-center justify-center gap-1.5 text-sm py-2"
-          data-posts-pagination
-          data-current-page={currentPage}
-          data-total-pages={totalPages}
-        >
-          <!-- 左箭头 -->
-          {currentPage > 1 ? (
-            <a href={pageHref(currentPage - 1)} title="上一页"
-               class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">←</a>
-          ) : (
-            <span class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-300 cursor-not-allowed">←</span>
-          )}
-
-          <!-- 页码 -->
-          {getPageNumbers(currentPage, totalPages).map((p) =>
-            p === '...' ? (
-              <span class="w-8 h-8 flex items-center justify-center text-ink-400">…</span>
-            ) : p === currentPage ? (
-              <span class="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-500 text-white font-medium">{p}</span>
-            ) : (
-              <a href={pageHref(p)} class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">{p}</a>
-            )
-          )}
-
-          <!-- 右箭头 -->
-          {currentPage < totalPages ? (
-            <a href={pageHref(currentPage + 1)} title="下一页"
-               class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">→</a>
-          ) : (
-            <span class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-300 cursor-not-allowed">→</span>
-          )}
-        </nav>
       )}
 
     </div>
@@ -436,13 +368,11 @@ const earliest = all[all.length - 1]?.data.pubDate;
 </BaseLayout>
 
 <script>
-  // 文章排序切换：跨页联动
+  // 文章排序切换（不分页：升序/降序整页重排）
   const toggle = document.querySelector<HTMLElement>('[data-sort-toggle]');
   const list = document.querySelector<HTMLElement>('[data-posts-list]');
-  const pagination = document.querySelector<HTMLElement>('[data-posts-pagination]');
   const metaEl = document.getElementById('all-posts-data');
   const searchEl = document.getElementById('search-index');
-  const PER_PAGE = Number(document.querySelector<HTMLElement>('[data-posts-list]')?.dataset.perPage || '4');
 
   if (toggle && list && metaEl && searchEl) {
     const allMeta: {id:string; pubDate:string}[] = JSON.parse(metaEl.textContent || '[]');
@@ -468,49 +398,12 @@ const earliest = all[all.length - 1]?.data.pubDate;
     };
 
     let currentSort: 'desc' | 'asc' = 'desc';
-    let currentPageIdx = 1;
-    const totalPosts = allMeta.length;
-    const totalDescPages = Math.ceil(totalPosts / PER_PAGE);
-
-    const renderPagination = () => {
-      if (!pagination) return;
-      const getPages = (cur: number, tot: number): (number | '...')[] => {
-        if (tot <= 7) return Array.from({ length: tot }, (_, i) => i + 1);
-        const arr: (number | '...')[] = [1];
-        if (cur > 3) arr.push('...');
-        const s = Math.max(2, cur - 1), e = Math.min(tot - 1, cur + 1);
-        for (let i = s; i <= e; i++) arr.push(i);
-        if (cur < tot - 2) arr.push('...');
-        arr.push(tot);
-        return arr;
-      };
-      const left = currentPageIdx > 1 ? `<a href="#" data-page="${currentPageIdx - 1}" title="上一页" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">←</a>` : `<span class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-300 cursor-not-allowed">←</span>`;
-      const right = currentPageIdx < totalDescPages ? `<a href="#" data-page="${currentPageIdx + 1}" title="下一页" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">→</a>` : `<span class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-300 cursor-not-allowed">→</span>`;
-      const mid = getPages(currentPageIdx, totalDescPages).map(p => p === '...' ? `<span class="w-8 h-8 flex items-center justify-center text-ink-400">…</span>` : p === currentPageIdx ? `<span class="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-500 text-white font-medium">${p}</span>` : `<a href="#" data-page="${p}" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">${p}</a>`).join('');
-      pagination.innerHTML = `${left}${mid}${right}`;
-      pagination.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach(a => {
-        a.addEventListener('click', (e) => {
-          e.preventDefault();
-          const p = Number(a.dataset.page);
-          if (p >= 1 && p <= totalDescPages) {
-            currentPageIdx = p;
-            renderList();
-          }
-        });
-      });
-      // 同步 header 计数
-      const cp = pagination.dataset.currentPage;
-      const headerCounter = document.querySelector('[data-posts-current-page]');
-      if (headerCounter) headerCounter.textContent = String(currentPageIdx);
-    };
 
     const renderList = () => {
       const sorted = [...allMeta].sort((a, b) => currentSort === 'asc'
         ? new Date(a.pubDate).getTime() - new Date(b.pubDate).getTime()
         : new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
-      const slice = sorted.slice((currentPageIdx - 1) * PER_PAGE, currentPageIdx * PER_PAGE);
-      list.innerHTML = slice.map((p) => renderCard(p.id)).join('');
-      renderPagination();
+      list.innerHTML = sorted.map((p) => renderCard(p.id)).join('');
     };
 
     const updateButtons = () => {
@@ -526,7 +419,6 @@ const earliest = all[all.length - 1]?.data.pubDate;
 
     const applySort = (dir: 'desc' | 'asc') => {
       currentSort = dir;
-      currentPageIdx = 1;
       updateButtons();
       renderList();
       try { localStorage.setItem('posts-sort', dir); } catch {}
