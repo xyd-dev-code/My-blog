@@ -117,21 +117,25 @@
   .scroll-fade {
     /* 默认无样式 */
   }
-  .scroll-fade.is-pending {
-    opacity: 0;
+  .scroll-fade.is-pending { opacity: 0; }
+  /* 不带 data-tilt 的元素从下方 16px 滑入,带 data-tilt 的卡片只淡入避免 transform 冲突 */
+  .scroll-fade.is-pending:not([data-tilt]) {
+    transform: translateY(16px);
   }
   .scroll-fade.is-in {
-    animation: scroll-fade-in 0.5s var(--ease-out-quint) both;
+    animation: scroll-fade-in 0.7s var(--ease-out-quint) both;
   }
   .scroll-fade.is-in:nth-child(1) { animation-delay: 0ms; }
-  .scroll-fade.is-in:nth-child(2) { animation-delay: 60ms; }
-  .scroll-fade.is-in:nth-child(3) { animation-delay: 120ms; }
-  .scroll-fade.is-in:nth-child(4) { animation-delay: 180ms; }
-  .scroll-fade.is-in:nth-child(n + 5) { animation-delay: 0ms; }
+  .scroll-fade.is-in:nth-child(2) { animation-delay: 100ms; }
+  .scroll-fade.is-in:nth-child(3) { animation-delay: 200ms; }
+  .scroll-fade.is-in:nth-child(4) { animation-delay: 300ms; }
+  .scroll-fade.is-in:nth-child(5) { animation-delay: 380ms; }
+  .scroll-fade.is-in:nth-child(6) { animation-delay: 440ms; }
+  .scroll-fade.is-in:nth-child(7) { animation-delay: 480ms; }
+  .scroll-fade.is-in:nth-child(n + 8) { animation-delay: 500ms; }
 
-  /* 只动 opacity,避免和 CardCursor 的 [data-tilt] transform 冲突 */
   @keyframes scroll-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: none; }
   }
 </style>
