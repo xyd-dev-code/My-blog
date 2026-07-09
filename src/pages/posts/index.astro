@@ -26,7 +26,7 @@ const allPostsMeta = all.map((p) => ({
 }));
 ---
 <BaseLayout title="Posts" description="所有文章 — 学习笔记、项目复盘、工具流。">
-  <div class="mx-auto max-w-3xl px-4 sm:px-6 py-6 lg:py-10">
+  <div class="mx-auto max-w-5xl px-4 sm:px-6 py-6 lg:py-10">
     <section class="flex flex-col">
       <header class="mb-5 text-center px-2">
         <h1 class="font-display text-2xl sm:text-3xl md:text-4xl font-bold text-ink-900">
@@ -96,7 +96,7 @@ const allPostsMeta = all.map((p) => ({
                   class="group paper-card flex flex-col block overflow-hidden transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-[2px] hover:shadow-md relative"
                 >
                   <div class="flex-1 flex flex-col sm:flex-row">
-                    <div class="w-20 h-20 shrink-0 overflow-hidden bg-cloud-200 rounded">
+                    <div class="w-28 h-28 shrink-0 overflow-hidden bg-cloud-200 rounded">
                       {post.data.cover && (
                         <img
                           src={post.data.cover}
