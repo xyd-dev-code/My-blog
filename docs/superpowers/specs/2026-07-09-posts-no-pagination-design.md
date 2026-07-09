@@ -2,7 +2,7 @@
 
 ## Context
 
-`/posts` 页当前是分页模式:每页 4 篇 (`POSTS_PER_PAGE`),URL 通过 `[...page].astro` 路由生成 `/posts/1` `/posts/2` `/posts/3`(`/posts` 走 default)。17 篇分了 5 页。
+`/posts` 页当前是分页模式:每页 4 篇 (`POSTS_PER_PAGE`),URL 通过 `[...page].astro` 路由生成 `/posts/1` `/posts/2` `/posts/3`(`/posts` 走 default)。37 篇分了 10 页。
 
 用户期望把 `/posts` 改成 **所有文章一次性铺出来**,不再分页。原因:`/posts` 应该是一站到底的归档视图,用户不应该为了看一篇旧文章需要"翻页"。
 
@@ -28,7 +28,7 @@
 - 不动文章详情页 (`src/pages/posts/[...slug].astro`)
 - 不动标签页 / about / friends / projects / guestbook
 - 不重定向 `/posts/2` `/posts/3`(直接 404)
-- 不做 lazy load / 虚拟滚动(17 篇全量铺没问题,等真破 50+ 再加)
+- 不做 lazy load / 虚拟滚动(37 篇全量铺没问题,等真破 100 再加)
 
 ---
 
@@ -77,7 +77,7 @@
 3. 侧栏 sticky 同步 header 高度:完整保留
 4. 标签云 collision resolve:完整保留
 
-排序切换逻辑简化后:**JS 重排时**仍然从 `all-posts-data` JSON 拿所有 id → 按 sort → `renderCard(id)` 拼接 HTML 注入 `<ul>`,无 slice,无分页。但 — 全量铺(不需要分页)为什么还要客户端重排?因为 `all-posts-data` 仍然以 desc 顺序嵌入,**用户点 "↑ 开篇优先"** 时 JS 重排整个 DOM(从第 17 篇排到第 1 篇)。
+排序切换逻辑简化后:**JS 重排时**仍然从 `all-posts-data` JSON 拿所有 id → 按 sort → `renderCard(id)` 拼接 HTML 注入 `<ul>`,无 slice,无分页。但 — 全量铺(不需要分页)为什么还要客户端重排?因为 `all-posts-data` 仍然以 desc 顺序嵌入,**用户点 "↑ 开篇优先"** 时 JS 重排整个 DOM(从第 37 篇排到第 1 篇)。
 
 ### 5. 顶部信息条变化
 
@@ -128,22 +128,22 @@
 
 ## 验证步骤
 
-1. `pnpm dev` → `localhost:4321/posts` → 看到 17 篇全量铺,无分页 chip
+1. `pnpm dev` → `localhost:4321/posts` → 看到 37 篇全量铺,无分页 chip
 2. `localhost:4321/posts/2` → 404(预期)
 3. `localhost:4321/posts/3` → 404(预期)
 4. 侧栏即时搜索 → 输入 "MySQL" → 匹配文章列表正常显示
-5. 排序切换 → 点 "↑ 开篇优先" → 17 篇倒序排列(JS 重排整个 ul)
+5. 排序切换 → 点 "↑ 开篇优先" → 37 篇倒序排列(JS 重排整个 ul)
 6. tag cloud hover 仍然浮动放位,sticky header-offset 仍然同步
 7. 移动端 (375px) → 单列铺,无横向滚动
 8. `pnpm build` 通过
-9. 部署到 GH Pages 后真实环境测试:`/posts` 17 篇全显示,`/posts/2` 404
+9. 部署到 GH Pages 后真实环境测试:`/posts` 37 篇全显示,`/posts/2` 404
 
 ---
 
 ## 风险 & 边缘情况
 
-1. **JSON 体积**:`all-posts-data` 嵌入 17 条 metadata (id + pubDate),< 1KB,无问题
-2. **search-index JSON 体积**:`searchIndex` 嵌入 17 条 t + d + tags + url + cover,< 5KB,无问题
+1. **JSON 体积**:`all-posts-data` 嵌入 37 条 metadata (id + pubDate),< 2KB,无问题
+2. **search-index JSON 体积**:`searchIndex` 嵌入 37 条 t + d + tags + url + cover,< 10KB,无问题
 3. **`/posts/2` 外链**:已存在,直接 404;用户已确认接受(意思是"git history 里能查到",不影响实际发现)
 4. **Astro 5 缓存**:`pnpm dev` 删除 `node_modules/.astro` 一次确认无 build 缓存污染
 5. **CSS 类 `.paper-card`、`.tag-chip` 已被 tag-chip-warm/leaf 引用**:`/posts` 里 tags 用的循环 `i % 3` 还是 `slice(0, 4)`,保留
@@ -152,7 +152,7 @@
 
 ## Out of Scope(本期不做)
 
-- Lazy load / virtual scroll(17 篇无必要)
+- Lazy load / virtual scroll(37 篇无必要)
 - 年份 anchor toc(用户选 C:无年份分隔)
 - `/posts/2` 301 重定向
 - 改 `POSTS_PER_PAGE` 常量值的迁移(它已经不被 `/posts` 引用,留作历史)
@@ -171,6 +171,6 @@
 
 ## 实施后产物
 
-- `/posts` 页**一份干净的"全量流"**(17 条 card,无任何分页 UI)
+- `/posts` 页**一份干净的"全量流"**(37 条 card,无任何分页 UI)
 - `/posts/2`、`/posts/3`、`/posts/N` **全 404**(用户原话:"直接删掉")
 - 首页、`/posts/{slug}`、tag cloud、侧栏搜索、侧栏 sticky 偏移 全部不受影响
