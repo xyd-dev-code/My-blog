@@ -5,7 +5,9 @@ import friendsData from '~/data/friends.json';
 
 const friends = friendsData as Friend[];
 const selfEntry = friends.find((f) => f.group === 'self');
-const others = friends.filter((f) => f.group !== 'self');
+const realFriends = friends.filter((f) => f.group === 'friend');
+const onlineFriends = friends.filter((f) => f.group === 'online-friend');
+const otherCount = realFriends.length + onlineFriends.length;
 ---
 
 <BaseLayout title="友情链接" description="结识有趣的灵魂,记录值得一去的地方 — 友链 / Friends">
@@ -22,7 +24,7 @@ const others = friends.filter((f) => f.group !== 'self');
         结识有趣的灵魂,记录值得一去的地方。
       </p>
       <p class="mt-2 text-xs text-ink-400">
-        共收录 <span class="font-mono tabular-nums text-sky-600">{friends.length}</span> 位
+        共收录 <span class="font-mono tabular-nums text-sky-600">{otherCount}</span> 位
       </p>
     </header>
 
@@ -53,48 +55,92 @@ const others = friends.filter((f) => f.group !== 'self');
     )}
 
     <!-- 分割线 -->
-    {others.length > 0 && (
+    {(realFriends.length + onlineFriends.length) > 0 && (
       <>
         <div class="my-10 sm:my-14 border-t border-dashed border-cloud-300"></div>
-        <div class="flex items-center gap-2 text-sm font-display">
-          <span aria-hidden="true">♥</span>
-          <h2 class="font-bold text-ink-900">好友</h2>
-          <span class="text-xs text-ink-400 font-mono">({others.length})</span>
-        </div>
-        <div class="mt-5 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {others.map((f, i) => (
-            <a
-              href={f.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="relative paper-card p-4 flex items-start gap-3 hover:-translate-y-0.5 hover:shadow-paper-md transition-[transform,box-shadow] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
-            >
-              {f.avatar ? (
-                <img src={f.avatar} alt={f.name}
-                  class="h-11 w-11 rounded object-cover bg-cloud-100 border border-cloud-200 shrink-0"
-                  onerror="this.onerror=null;this.outerHTML='<div aria-hidden=&quot;true&quot; class=&quot;h-11 w-11 rounded bg-cloud-100 border border-cloud-200 shrink-0 flex items-center justify-center text-sm font-display font-semibold text-ink-500&quot;>J</div>'" />
-              ) : (
-                <div aria-hidden="true"
-                  class="h-11 w-11 rounded bg-cloud-100 border border-cloud-200 shrink-0 flex items-center justify-center text-sm font-display font-semibold text-ink-500">
-                  {f.name.slice(0, 1)}
-                </div>
-              )}
-              <div class="min-w-0 flex-1">
-                <div class="font-display text-base font-bold text-ink-900 truncate">{f.name}</div>
-                <div class="text-[11px] font-mono text-ink-500 truncate">{new URL(f.url).hostname}</div>
-                <div class="mt-1 text-xs text-ink-500 leading-relaxed line-clamp-3">{f.desc}</div>
-              </div>
-              <!-- 右下角序号 -->
-              <span class="absolute bottom-2 right-2 text-[10px] font-mono tabular-nums text-cloud-300">
-                {String(i + 1).padStart(2, '0')}
-              </span>
-            </a>
-          ))}
-        </div>
+
+        {realFriends.length > 0 && (
+          <>
+            <div class="flex items-center gap-2 text-sm font-display">
+              <span aria-hidden="true">♥</span>
+              <h2 class="font-bold text-ink-900">好友</h2>
+              <span class="text-xs text-ink-400 font-mono">({realFriends.length})</span>
+            </div>
+            <div class="mt-5 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+              {realFriends.map((f, i) => (
+                <a
+                  href={f.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="relative paper-card p-4 flex items-start gap-3 hover:-translate-y-0.5 hover:shadow-paper-md transition-[transform,box-shadow] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+                >
+                  {f.avatar ? (
+                    <img src={f.avatar} alt={f.name}
+                      class="h-11 w-11 rounded object-cover bg-cloud-100 border border-cloud-200 shrink-0"
+                      onerror="this.onerror=null;this.outerHTML='<div aria-hidden=&quot;true&quot; class=&quot;h-11 w-11 rounded bg-cloud-100 border border-cloud-200 shrink-0 flex items-center justify-center text-sm font-display font-semibold text-ink-500&quot;>J</div>'" />
+                  ) : (
+                    <div aria-hidden="true"
+                      class="h-11 w-11 rounded bg-cloud-100 border border-cloud-200 shrink-0 flex items-center justify-center text-sm font-display font-semibold text-ink-500">
+                      {f.name.slice(0, 1)}
+                    </div>
+                  )}
+                  <div class="min-w-0 flex-1">
+                    <div class="font-display text-base font-bold text-ink-900 truncate">{f.name}</div>
+                    <div class="text-[11px] font-mono text-ink-500 truncate">{new URL(f.url).hostname}</div>
+                    <div class="mt-1 text-xs text-ink-500 leading-relaxed line-clamp-3">{f.desc}</div>
+                  </div>
+                  <span class="absolute bottom-2 right-2 text-[10px] font-mono tabular-nums text-cloud-300">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                </a>
+              ))}
+            </div>
+          </>
+        )}
+
+        {onlineFriends.length > 0 && (
+          <>
+            {realFriends.length > 0 && <div class="mt-10 sm:mt-12"></div>}
+            <div class="flex items-center gap-2 text-sm font-display">
+              <span aria-hidden="true">☕</span>
+              <h2 class="font-bold text-ink-900">网友</h2>
+              <span class="text-xs text-ink-400 font-mono">({onlineFriends.length})</span>
+            </div>
+            <div class="mt-5 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+              {onlineFriends.map((f, i) => (
+                <a
+                  href={f.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="relative paper-card p-4 flex items-start gap-3 hover:-translate-y-0.5 hover:shadow-paper-md transition-[transform,box-shadow] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+                >
+                  {f.avatar ? (
+                    <img src={f.avatar} alt={f.name}
+                      class="h-11 w-11 rounded object-cover bg-cloud-100 border border-cloud-200 shrink-0"
+                      onerror="this.onerror=null;this.outerHTML='<div aria-hidden=&quot;true&quot; class=&quot;h-11 w-11 rounded bg-cloud-100 border border-cloud-200 shrink-0 flex items-center justify-center text-sm font-display font-semibold text-ink-500&quot;>J</div>'" />
+                  ) : (
+                    <div aria-hidden="true"
+                      class="h-11 w-11 rounded bg-cloud-100 border border-cloud-200 shrink-0 flex items-center justify-center text-sm font-display font-semibold text-ink-500">
+                      {f.name.slice(0, 1)}
+                    </div>
+                  )}
+                  <div class="min-w-0 flex-1">
+                    <div class="font-display text-base font-bold text-ink-900 truncate">{f.name}</div>
+                    <div class="text-[11px] font-mono text-ink-500 truncate">{new URL(f.url).hostname}</div>
+                    <div class="mt-1 text-xs text-ink-500 leading-relaxed line-clamp-3">{f.desc}</div>
+                  </div>
+                  <span class="absolute bottom-2 right-2 text-[10px] font-mono tabular-nums text-cloud-300">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                </a>
+              ))}
+            </div>
+          </>
+        )}
       </>
     )}
 
-    {others.length === 0 && !selfEntry && (
+    {(realFriends.length + onlineFriends.length) === 0 && !selfEntry && (
       <div class="paper-card p-12 mt-10 text-center">
         <p class="text-ink-500">友链列表是空的。在 <code class="px-1 py-0.5 rounded bg-cloud-100 font-mono text-xs">src/data/friends.ts</code> 里加几个吧。</p>
       </div>
