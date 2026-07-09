@@ -120,7 +120,7 @@ const earliest = all[all.length - 1]?.data.pubDate;
               <p class="text-xs text-ink-500 mt-0.5">学习笔记 · 项目复盘 · 工具流</p>
             </div>
           </div>
-          <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+          <div class="mt-4 grid grid-cols-2 gap-2 text-center">
             <div>
               <p class="font-display text-lg font-semibold text-ink-900 tabular-nums">{all.length}</p>
               <p class="text-[11px] text-ink-500">文章</p>
@@ -128,10 +128,6 @@ const earliest = all[all.length - 1]?.data.pubDate;
             <div>
               <p class="font-display text-lg font-semibold text-ink-900 tabular-nums">{tags.length}</p>
               <p class="text-[11px] text-ink-500">标签</p>
-            </div>
-            <div>
-              <p class="font-display text-lg font-semibold text-ink-900 tabular-nums">{totalPages}</p>
-              <p class="text-[11px] text-ink-500">页</p>
             </div>
           </div>
           <p class="mt-4 text-xs text-ink-400 font-serif italic">慢慢写，持续复盘。</p>
@@ -372,13 +368,11 @@ const earliest = all[all.length - 1]?.data.pubDate;
 </BaseLayout>
 
 <script>
-  // 文章排序切换：跨页联动
+  // 文章排序切换（不分页：升序/降序整页重排）
   const toggle = document.querySelector<HTMLElement>('[data-sort-toggle]');
   const list = document.querySelector<HTMLElement>('[data-posts-list]');
-  const pagination = document.querySelector<HTMLElement>('[data-posts-pagination]');
   const metaEl = document.getElementById('all-posts-data');
   const searchEl = document.getElementById('search-index');
-  const PER_PAGE = Number(document.querySelector<HTMLElement>('[data-posts-list]')?.dataset.perPage || '4');
 
   if (toggle && list && metaEl && searchEl) {
     const allMeta: {id:string; pubDate:string}[] = JSON.parse(metaEl.textContent || '[]');
@@ -404,49 +398,12 @@ const earliest = all[all.length - 1]?.data.pubDate;
     };
 
     let currentSort: 'desc' | 'asc' = 'desc';
-    let currentPageIdx = 1;
-    const totalPosts = allMeta.length;
-    const totalDescPages = Math.ceil(totalPosts / PER_PAGE);
-
-    const renderPagination = () => {
-      if (!pagination) return;
-      const getPages = (cur: number, tot: number): (number | '...')[] => {
-        if (tot <= 7) return Array.from({ length: tot }, (_, i) => i + 1);
-        const arr: (number | '...')[] = [1];
-        if (cur > 3) arr.push('...');
-        const s = Math.max(2, cur - 1), e = Math.min(tot - 1, cur + 1);
-        for (let i = s; i <= e; i++) arr.push(i);
-        if (cur < tot - 2) arr.push('...');
-        arr.push(tot);
-        return arr;
-      };
-      const left = currentPageIdx > 1 ? `<a href="#" data-page="${currentPageIdx - 1}" title="上一页" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">←</a>` : `<span class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-300 cursor-not-allowed">←</span>`;
-      const right = currentPageIdx < totalDescPages ? `<a href="#" data-page="${currentPageIdx + 1}" title="下一页" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">→</a>` : `<span class="w-8 h-8 flex items-center justify-center rounded-lg text-ink-300 cursor-not-allowed">→</span>`;
-      const mid = getPages(currentPageIdx, totalDescPages).map(p => p === '...' ? `<span class="w-8 h-8 flex items-center justify-center text-ink-400">…</span>` : p === currentPageIdx ? `<span class="w-8 h-8 flex items-center justify-center rounded-lg bg-sky-500 text-white font-medium">${p}</span>` : `<a href="#" data-page="${p}" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-cloud-300 text-ink-600 hover:border-sky-400 hover:text-sky-700 transition-colors">${p}</a>`).join('');
-      pagination.innerHTML = `${left}${mid}${right}`;
-      pagination.querySelectorAll<HTMLAnchorElement>('a[data-page]').forEach(a => {
-        a.addEventListener('click', (e) => {
-          e.preventDefault();
-          const p = Number(a.dataset.page);
-          if (p >= 1 && p <= totalDescPages) {
-            currentPageIdx = p;
-            renderList();
-          }
-        });
-      });
-      // 同步 header 计数
-      const cp = pagination.dataset.currentPage;
-      const headerCounter = document.querySelector('[data-posts-current-page]');
-      if (headerCounter) headerCounter.textContent = String(currentPageIdx);
-    };
 
     const renderList = () => {
       const sorted = [...allMeta].sort((a, b) => currentSort === 'asc'
         ? new Date(a.pubDate).getTime() - new Date(b.pubDate).getTime()
         : new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
-      const slice = sorted.slice((currentPageIdx - 1) * PER_PAGE, currentPageIdx * PER_PAGE);
-      list.innerHTML = slice.map((p) => renderCard(p.id)).join('');
-      renderPagination();
+      list.innerHTML = sorted.map((p) => renderCard(p.id)).join('');
     };
 
     const updateButtons = () => {
@@ -462,7 +419,6 @@ const earliest = all[all.length - 1]?.data.pubDate;
 
     const applySort = (dir: 'desc' | 'asc') => {
       currentSort = dir;
-      currentPageIdx = 1;
       updateButtons();
       renderList();
       try { localStorage.setItem('posts-sort', dir); } catch {}
