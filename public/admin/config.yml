@@ -50,5 +50,21 @@ collections:
           - { label: "站点地址", name: "url", widget: "string" }
           - { label: "头像链接", name: "avatar", widget: "string" }
           - { label: "一句话简介", name: "desc", widget: "text" }
-          - { label: "分组", name: "group", widget: "select", options: ["self", "friend"], required: false, default: "friend" }
+          - { label: "分组", name: "group", widget: "select", options: ["self", "friend", "online-friend"], required: false, default: "friend" }
           - { label: "状态", name: "status", widget: "select", options: ["approved", "pending"], required: false, hint: "pending 仅作审计元数据,不影响渲染" }
+
+  - name: "guestbook"
+    label: "留言板"
+    description: "/guestbook 页面留言数据。新留言由 GitHub Issue(label: guestbook)收集,通过本面板合并。"
+    files:
+      - name: "guestbook"
+        label: "Guestbook 留言"
+        file: "src/data/guestbook.json"
+        format: "json"
+        create: true
+        delete: false
+        fields:
+          - { label: "昵称", name: "name", widget: "string" }
+          - { label: "个人主页", name: "url", widget: "string", required: false }
+          - { label: "日期", name: "date", widget: "datetime", format: "YYYY-MM-DD", date_format: "YYYY-MM-DD", time_format: false }
+          - { label: "留言内容", name: "body", widget: "text" }
