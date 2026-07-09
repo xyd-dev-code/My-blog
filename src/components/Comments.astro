@@ -1,17 +1,18 @@
 ---
-// Giscus 评论组件
-// 使用前需在 GitHub 仓库 Settings → Features 开启 Discussions
-// 并安装 giscus app：https://giscus.app
-// 把下面两个占位换成 giscus.app 上填出来的值
-const REPO_ID = 'REPLACE_ME_GISCUS_REPO_ID';
-const CATEGORY_ID = 'REPLACE_ME_GISCUS_CATEGORY_ID';
-const isConfigured = !REPO_ID.startsWith('REPLACE_ME') && !CATEGORY_ID.startsWith('REPLACE_ME');
+// Utterances 评论组件
+// 零后端、零数据库、零构建配置:留言直接走 GitHub Issues,issue 标题 = 页面路径。
+// 使用前需安装 utterances app:https://github.com/apps/utterances
+// 装到 xyd-dev-code/My-blog 后,无需任何其他配置。
+const repo = 'xyd-dev-code/My-blog';
+// utterances 只需要 repo = OWNER/REPO,无需任何 token。
+// 装 utterances app(https://github.com/apps/utterances)到仓库后,刷新页面即生效。
+const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const isConfigured = REPO_RE.test(repo);
 
 interface Props {
   slug: string;
 }
 const { slug } = Astro.props;
-const repo = 'xyd-dev-code/My-blog';
 ---
 
 <section class="mt-16 pt-8 border-t border-border-subtle">
@@ -23,21 +24,14 @@ const repo = 'xyd-dev-code/My-blog';
     <>
       <p class="text-text-dim font-mono text-sm mb-6">
         <span class="text-neon-cyan">$</span> git commit -m "留下你的想法" <br />
-        <span class="text-text-mute">// 基于 GitHub Discussions,加载可能需要科学上网</span>
+        <span class="text-text-mute">// 基于 GitHub Issues,加载可能需要科学上网</span>
       </p>
       <script
-        src="https://giscus.app/client.js"
-        data-repo={repo}
-        data-repo-id={REPO_ID}
-        data-category="Announcements"
-        data-category-id={CATEGORY_ID}
-        data-mapping="pathname"
-        data-strict="0"
-        data-reactions-enabled="1"
-        data-emit-metadata="0"
-        data-input-position="top"
-        data-theme="light"
-        data-lang="zh-CN"
+        src="https://utteranc.es/client.js"
+        repo={repo}
+        issue-term={slug}
+        label="guestbook"
+        theme="github-light"
         crossorigin="anonymous"
         async
       ></script>
@@ -47,19 +41,7 @@ const repo = 'xyd-dev-code/My-blog';
       <div aria-hidden="true" class="text-3xl mb-2">✎</div>
       <p class="text-ink-700 font-display font-medium mb-2">留言区还没配置好</p>
       <p class="text-sm text-ink-500 mb-5 max-w-md mx-auto">
-        暂时请到 GitHub Discussions 直接留言 — 同样的内容,同样的线程、回复、表情反应全都在。
-      </p>
-      <a
-        href={`https://github.com/${repo}/discussions/new?category=general`}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-gradient-to-br from-sky-50 to-leaf-50 border border-sky-200 text-sm font-medium text-sky-700 hover:border-sky-400 hover:shadow-paper-md transition-[transform,box-shadow,border-color] duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
-      >
-        <span aria-hidden="true">↗</span>
-        去 Discussions 留言
-      </a>
-      <p class="text-[11px] text-ink-400 mt-4 font-mono">
-        // 配置方式:见 <code class="px-1 py-0.5 rounded bg-cloud-100">src/components/Comments.astro</code> 顶部的 REPO_ID / CATEGORY_ID
+        请先去 <a href="https://github.com/apps/utterances" target="_blank" rel="noopener noreferrer" class="text-sky-600 hover:underline">utterances app</a> 装到 <code class="px-1 py-0.5 rounded bg-cloud-100 font-mono text-xs">xyd-dev-code/My-blog</code>,装完刷新页面即可。
       </p>
     </div>
   )}
