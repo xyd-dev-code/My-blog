@@ -19,7 +19,6 @@
 - 🌈 **代码霓虹高亮** — Shiki + `github-dark-dimmed` 主题（rehype-pretty-code）
 - 📊 **文章排序切换** — `/posts` 页支持「最新优先 / 开篇优先」两模式，跨页联动（客户端 JS 重排 + localStorage 持久化）
 - 🏷️ **标签过滤** — `STOP_TAGS`（`src/consts.ts`）集中过滤非技术标签；点击任意标签跳 `/tags/[tag]`
-- 📡 **RSS 订阅** — `/rss.xml`
 - 🚀 **一键部署** — push `main` → GitHub Actions → GitHub Pages
 
 ## 目录结构
@@ -42,7 +41,7 @@ src/
 │   ├── projects/             # 3 个项目 (MDX): bookstore, mall, zhikao-cloud
 │   └── config.ts             # zod schema：posts (title/pubDate/tags/...) + projects (title/pubDate/endDate/tags/repo/featured/relatedPosts)
 ├── layouts/
-│   ├── BaseLayout.astro      # 全站通用（OG/Twitter/字体/RSS link）
+│   ├── BaseLayout.astro      # 全站通用（OG/Twitter/字体）
 │   └── PostLayout.astro      # 文章专用（TOC/PostMeta/阅读时长）
 ├── pages/
 │   ├── index.astro           # 首页：hero + 最近 3 篇
@@ -56,7 +55,6 @@ src/
 │   ├── tags/
 │   │   ├── [tag].astro       # 按 tag 筛文章
 │   │   └── index.astro       # 标签索引
-│   └── rss.xml.ts            # RSS feed
 ├── styles/global.css         # tokens + prose + paper-card + cubic-bezier
 └── consts.ts                 # SITE / NAV / POSTS_PER_PAGE / STOP_TAGS / filterTags()
 ```
