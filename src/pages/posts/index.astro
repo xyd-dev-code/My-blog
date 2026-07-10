@@ -95,8 +95,8 @@ const allPostsMeta = all.map((p) => ({
                   href={`/posts/${post.id}`}
                   class="group paper-card flex flex-col block overflow-hidden transition-[transform,box-shadow] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-[2px] hover:shadow-md relative"
                 >
-                  <div class="flex-1 flex flex-col sm:flex-row">
-                    <div class="w-28 sm:w-32 h-full shrink-0 self-stretch overflow-hidden bg-cloud-200 rounded">
+                  <div class="flex flex-col sm:flex-row items-stretch">
+                    <div class="w-32 sm:w-44 shrink-0 self-stretch min-h-[9rem] sm:min-h-[13rem] overflow-hidden bg-cloud-200 sm:rounded-l-lg sm:rounded-r-none rounded-lg">
                       {post.data.cover && (
                         <img
                           src={post.data.cover}
@@ -108,7 +108,7 @@ const allPostsMeta = all.map((p) => ({
                         />
                       )}
                     </div>
-                    <div class="flex-1 min-w-0 p-4 sm:p-5">
+                    <div class="flex-1 min-w-0 p-5 sm:p-6">
                       <div class="flex items-baseline justify-between gap-3">
                         <h2 class="font-display text-base sm:text-lg font-semibold text-ink-900 group-hover:text-sky-700 transition-[color] duration-[120ms] leading-snug line-clamp-2">
                           {post.data.title}
